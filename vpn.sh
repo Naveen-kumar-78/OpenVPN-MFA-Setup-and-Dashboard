@@ -65,7 +65,7 @@ REQ
 
 "$PIP_BIN" install -r "$REQUIREMENTS_FILE"
 
-# 4) Deploy the Flask app (app.py) â€” UPDATED with client management delegation
+# 4) Deploy the Flask app (app.py) — UPDATED with client management delegation
 echo "=== Writing Flask app to $APP_DIR/app.py ==="
 cat > "$APP_DIR/app.py" <<'PY'
 #!/usr/bin/env python3
@@ -581,9 +581,9 @@ def generate_advanced_pdf_report(log_type, filtered_logs, headers, metadata):
             
             summary = f"""
             <b>Summary Statistics:</b><br/>
-            â€¢ Total Connections: {connections}<br/>
-            â€¢ Total Disconnections: {disconnections}<br/>
-            â€¢ Unique Clients: {unique_clients}
+            • Total Connections: {connections}<br/>
+            • Total Disconnections: {disconnections}<br/>
+            • Unique Clients: {unique_clients}
             """
             story.append(Paragraph(summary, styles['Normal']))
             story.append(Spacer(1, 12))
@@ -595,9 +595,9 @@ def generate_advanced_pdf_report(log_type, filtered_logs, headers, metadata):
             
             summary = f"""
             <b>MFA Statistics:</b><br/>
-            â€¢ Successful Attempts: {successes}<br/>
-            â€¢ Failed Attempts: {failures}<br/>
-            â€¢ Success Rate: {success_rate:.1f}%
+            • Successful Attempts: {successes}<br/>
+            • Failed Attempts: {failures}<br/>
+            • Success Rate: {success_rate:.1f}%
             """
             story.append(Paragraph(summary, styles['Normal']))
             story.append(Spacer(1, 12))
@@ -1893,30 +1893,30 @@ cat > "$TEMPLATES_DIR/user_management.html" <<'HTML'
 </head>
 <body>
 <div class="container mt-4">
-  <h2 class="mb-3">ðŸ‘¤ User Management</h2>
-  <a href="/" class="btn btn-secondary mb-3">â¬… Back to Dashboard</a>
+  <h2 class="mb-3">👤 User Management</h2>
+  <a href="/" class="btn btn-secondary mb-3">⬅ Back to Dashboard</a>
 
   <!-- Add User Form -->
   <div class="card mb-4">
-    <div class="card-header bg-primary text-white">âž• Add New User</div>
+    <div class="card-header bg-primary text-white">➕ Add New User</div>
     <div class="card-body">
       <form method="post" action="{{ url_for('add_user') }}">
         <div class="row g-2">
           <div class="col-md-3">
-            <input name="username" class="form-control" placeholder="ðŸ‘¤ Username" required>
+            <input name="username" class="form-control" placeholder="👤 Username" required>
           </div>
           <div class="col-md-3">
-            <input name="password" type="password" class="form-control" placeholder="ðŸ”‘ Password" required>
+            <input name="password" type="password" class="form-control" placeholder="🔑 Password" required>
           </div>
           <div class="col-md-3">
             <select name="role" class="form-control">
-              <option value="readonly">ðŸ‘ Readonly</option>
-              <option value="readwrite">âœ Read/Write</option>
-              <option value="admin">â­ Admin</option>
+              <option value="readonly">👁 Readonly</option>
+              <option value="readwrite">✍ Read/Write</option>
+              <option value="admin">⭐ Admin</option>
             </select>
           </div>
           <div class="col-md-2">
-            <input name="email" type="email" class="form-control" placeholder="ðŸ“§ Email">
+            <input name="email" type="email" class="form-control" placeholder="📧 Email">
           </div>
           <div class="col-md-1 d-grid">
             <button class="btn btn-success btn-rounded">Add</button>
@@ -1928,7 +1928,7 @@ cat > "$TEMPLATES_DIR/user_management.html" <<'HTML'
 
   <!-- Existing Users -->
   <div class="card">
-    <div class="card-header bg-dark text-white">ðŸ“‹ Existing Users</div>
+    <div class="card-header bg-dark text-white">📋 Existing Users</div>
     <div class="card-body">
       <table class="table table-striped table-hover align-middle">
         <thead>
@@ -1960,7 +1960,7 @@ cat > "$TEMPLATES_DIR/user_management.html" <<'HTML'
               <a href="{{ url_for('delete_user', username=username) }}" 
                  class="btn btn-danger btn-sm btn-rounded"
                  onclick="return confirm('Delete {{ username }}?')">
-                 ðŸ—‘ Delete
+                 🗑 Delete
               </a>
             </td>
           </tr>
@@ -2022,7 +2022,7 @@ cat > "$TEMPLATES_DIR/login.html" <<'HTML'
     <div class="col-md-5 col-lg-4">
       <div class="card login-card p-4">
         <div class="login-header">
-          <h4>ðŸ” BCITS VPN Dashboard</h4>
+          <h4>🔐 BCITS VPN Dashboard</h4>
           <p class="text-muted small">Secure Login Access</p>
         </div>
 
@@ -2038,17 +2038,17 @@ cat > "$TEMPLATES_DIR/login.html" <<'HTML'
 
         <form method="post">
           <div class="mb-3">
-            <input name="username" class="form-control" placeholder="ðŸ‘¤ Username" required>
+            <input name="username" class="form-control" placeholder="👤 Username" required>
           </div>
           <div class="mb-3">
-            <input name="password" type="password" class="form-control" placeholder="ðŸ”‘ Password" required>
+            <input name="password" type="password" class="form-control" placeholder="🔑 Password" required>
           </div>
           <div class="d-grid">
             <button class="btn btn-primary btn-custom">Login</button>
           </div>
         </form>
 
-        <p class="footer-text">Â© 2025 BCITS | VPN Secure Access</p>
+        <p class="footer-text">© 2025 BCITS | VPN Secure Access</p>
       </div>
     </div>
   </div>
@@ -2094,7 +2094,7 @@ cat > "$TEMPLATES_DIR/clients.html" <<'HTML'
 <body>
 <div class="container mt-4">
   <h2 class="mb-3">Client Activity</h2>
-  <a href="/" class="btn btn-secondary mb-3">â¬… Back to Dashboard</a>
+  <a href="/" class="btn btn-secondary mb-3">⬅ Back to Dashboard</a>
 
   <!-- Created Clients -->
   <div class="card activity-card shadow-sm">
@@ -2103,8 +2103,8 @@ cat > "$TEMPLATES_DIR/clients.html" <<'HTML'
       {% if created %}
         {% for c in created %}
           <div class="activity-item">
-            <span class="timestamp">{{ c[0] }}</span> â€“
-            <span class="action text-success">{{ c[1] }}</span> â†’
+            <span class="timestamp">{{ c[0] }}</span> –
+            <span class="action text-success">{{ c[1] }}</span> →
             <span class="username">{{ c[2] }}</span>
           </div>
         {% endfor %}
@@ -2121,8 +2121,8 @@ cat > "$TEMPLATES_DIR/clients.html" <<'HTML'
       {% if revoked %}
         {% for c in revoked %}
           <div class="activity-item">
-            <span class="timestamp">{{ c[0] }}</span> â€“
-            <span class="action text-danger">{{ c[1] }}</span> â†’
+            <span class="timestamp">{{ c[0] }}</span> –
+            <span class="action text-danger">{{ c[1] }}</span> →
             <span class="username">{{ c[2] }}</span>
           </div>
         {% endfor %}
@@ -2172,8 +2172,8 @@ cat > "$TEMPLATES_DIR/audit_logs.html" <<'HTML'
 </head>
 <body>
 <div class="container mt-4">
-  <h2 class="mb-3">ðŸ“œ Audit Logs</h2>
-  <a href="/" class="btn btn-secondary mb-3">â¬… Back to Dashboard</a>
+  <h2 class="mb-3">📜 Audit Logs</h2>
+  <a href="/" class="btn btn-secondary mb-3">⬅ Back to Dashboard</a>
 
   <div class="card">
     <div class="card-header bg-primary text-white">
@@ -2413,10 +2413,10 @@ TLSCRYPT_CONFIG
     echo "$(date '+%Y-%m-%d %H:%M:%S'),CREATED,$CLIENT" >> "$CLIENT_LOG"
     
     if [[ "$SILENT" == false ]]; then
-        echo "âœ… Client added: $CLIENT"
-        echo "ðŸ“‚ Config file: $CLIENT_FILE"
+        echo "✅ Client added: $CLIENT"
+        echo "📂 Config file: $CLIENT_FILE"
         if [[ -f "$QR_DIR/${CLIENT}_mfa.png" ]]; then
-            echo "ðŸ“± MFA QR code: $QR_DIR/${CLIENT}_mfa.png"
+            echo "📱 MFA QR code: $QR_DIR/${CLIENT}_mfa.png"
         fi
     else
         echo "Client $CLIENT created successfully"
@@ -2609,7 +2609,7 @@ fi
 # Interactive menu - unchanged
 setup_client_connect_script
 
-echo "ðŸ” OpenVPN Client Management with TRUE Access Control"
+echo "🔐 OpenVPN Client Management with TRUE Access Control"
 echo "===================================================="
 echo "Choose an option:"
 echo "1) Add client"
@@ -2678,32 +2678,32 @@ echo "=============================================="
 echo "=== VPN Dashboard Installation Complete   ==="
 echo "=============================================="
 echo ""
-echo "âœ“ Dashboard installed to: $APP_DIR"
-echo "âœ“ Non-interactive client.sh: $CLIENT_BIN"
-echo "âœ“ Service: systemctl status vpn_dashboard.service"
-echo "âœ“ Logs: journalctl -u vpn_dashboard.service -f"
+echo "✓ Dashboard installed to: $APP_DIR"
+echo "✓ Non-interactive client.sh: $CLIENT_BIN"
+echo "✓ Service: systemctl status vpn_dashboard.service"
+echo "✓ Logs: journalctl -u vpn_dashboard.service -f"
 echo ""
-echo "ðŸŒ Access URL: http://<server-ip>:5000"
+echo "🌐 Access URL: http://<server-ip>:5000"
 echo ""
-echo "ðŸ‘¤ Default Users:"
+echo "👤 Default Users:"
 echo "   admin/admin123     (full access)"
 echo "   operator/operator123 (read-write)"
 echo "   viewer/viewer123   (read-only)"
 echo ""
-echo "ðŸ“ Key Directories:"
+echo "📁 Key Directories:"
 echo "   App: $APP_DIR"
 echo "   Templates: $TEMPLATES_DIR"
 echo "   Client configs: $OUTPUT_DIR"
 echo "   QR codes: $QR_DIR"
 echo "   Logs: $LOG_DIR"
 echo ""
-echo "ðŸ”§ Features Added:"
-echo "   âœ“ Client create/revoke/disable/enable/kick via dashboard"
-echo "   âœ“ Download .ovpn files directly from dashboard"
-echo "   âœ“ Download MFA QR codes directly from dashboard"
-echo "   âœ“ Non-interactive client.sh delegation"
-echo "   âœ“ True disable enforcement via client-connect hooks"
-echo "   âœ“ All original dashboard features preserved"
+echo "🔧 Features Added:"
+echo "   ✓ Client create/revoke/disable/enable/kick via dashboard"
+echo "   ✓ Download .ovpn files directly from dashboard"
+echo "   ✓ Download MFA QR codes directly from dashboard"
+echo "   ✓ Non-interactive client.sh delegation"
+echo "   ✓ True disable enforcement via client-connect hooks"
+echo "   ✓ All original dashboard features preserved"
 echo ""
 echo "To test client management:"
 echo "   1. Login to dashboard as admin"

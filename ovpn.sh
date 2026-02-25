@@ -199,7 +199,7 @@ EOF_JSON
 if [ "$3" == "DRY_RUN" ]; then
     STATUS="$2"
     echo "$TIME,DRYRUN,$USER,$STATUS" >> "$ALERT_LOG"
-    SUBJECT="ðŸ“¢ MFA Dry-Run: $USER $STATUS"
+    SUBJECT="📢 MFA Dry-Run: $USER $STATUS"
     BODY_HTML="<html><body style='font-family:Arial,sans-serif;'>
     <h2 style='color:#0066cc;'>MFA Dry-Run Notification</h2>
     <p><b>User:</b> $USER</p>
@@ -251,7 +251,7 @@ else
     # -------------------- SES Alert after 3 fails today --------------------
     FAIL_COUNT_TODAY=$(grep "^$DATE_ONLY" "$LOG_FILE" 2>/dev/null | grep ",$USER,FAIL" | wc -l || echo 0)
     if [ "$FAIL_COUNT_TODAY" -eq 3 ]; then
-        SUBJECT="âš ï¸ MFA Alert: $USER failed MFA ($FAIL_COUNT_TODAY times today)"
+        SUBJECT="⚠️ MFA Alert: $USER failed MFA ($FAIL_COUNT_TODAY times today)"
         BODY_HTML="<html><body style='font-family:Arial,sans-serif;'>
         <h2 style='color:#cc0000;'>&#9888; MFA Alert</h2>
         <p>User <b>$USER</b> failed MFA multiple times.</p>
@@ -276,7 +276,7 @@ else
         $KICK_CMD -f "openvpn.*$USER" >/dev/null 2>&1 || true
         echo "$TIME,KICKED,$USER" >> "$CLIENT_LOG"
 
-        SUBJECT="âŒ VPN Access Disabled: $USER (auto-disabled)"
+        SUBJECT="❌ VPN Access Disabled: $USER (auto-disabled)"
         BODY_HTML="<html><body style='font-family:Arial,sans-serif;'>
         <h2 style='color:#cc0000;'>&#9940; VPN Access Disabled</h2>
         <p>User <b>$USER</b> has been <b>disabled</b> after $RECENT_FAIL_COUNT failed MFA attempts within 3 minutes.</p>
@@ -298,7 +298,7 @@ chown root:root /etc/openvpn/mfa-verify.sh
 # Hooks remain same ...
 cat > $HOOKS_DIR/connect.sh <<'EOF'
 #!/bin/bash
-# OpenVPN connect hook â€” writes to master + daily logs (8 fields)
+# OpenVPN connect hook — writes to master + daily logs (8 fields)
 LOG_DIR="/var/log/openvpn/custom_logs"
 MASTER_LOG="$LOG_DIR/master_connection_audit.log"
 DAILY_LOG="$LOG_DIR/$(date +%F).log"
@@ -335,7 +335,7 @@ EOF
 
 cat > $HOOKS_DIR/disconnect.sh <<'EOF'
 #!/bin/bash
-# OpenVPN disconnect hook â€” calculates duration, writes to master + daily logs (8 fields)
+# OpenVPN disconnect hook — calculates duration, writes to master + daily logs (8 fields)
 LOG_DIR="/var/log/openvpn/custom_logs"
 MASTER_LOG="$LOG_DIR/master_connection_audit.log"
 DAILY_LOG="$LOG_DIR/$(date +%F).log"
@@ -384,4 +384,3 @@ systemctl status --no-pager openvpn-server@server || true
 
 echo "=== OpenVPN + MFA Production Setup Completed ==="
 echo "IMPORTANT: Edit $SES_CONF with your AWS SES credentials and verified sender/recipient."
-

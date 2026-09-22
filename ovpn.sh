@@ -23,6 +23,7 @@ MFA_LOG="$LOG_DIR/mfa_attempts.log"
 STATUS_LOG="$LOG_DIR/status.log"
 MFA_DIR="/etc/openvpn/mfa-secrets"
 CLIENT_LOG="/var/log/openvpn/client_activity.log"
+DB_FILE="/etc/openvpn/zubby_vpn.db"
 
 DEFAULT_IFACE=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
 [ -z "$DEFAULT_IFACE" ] && DEFAULT_IFACE=$(ip route | grep '^default' | awk '{print $5}' | head -n1)
@@ -46,19 +47,103 @@ timedatectl set-timezone Asia/Kolkata 2>/dev/null || true
 
 mkdir -p $VPN_DIR $CLIENT_DIR $HOOKS_DIR $LOG_DIR $MFA_DIR
 
-# Enable IP forwarding (compatible with all Ubuntu/Debian versions)
-echo 1 > /proc/sys/net/ipv4/ip_forward
+# Initialize SQLite database schema idempotently (WAL mode enabled)
+if command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "$DB_FILE" <<'SQL_INIT'
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'readonly',
+    email TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT DEFAULT 'system'
+);
+CREATE TABLE IF NOT EXISTS disabled_clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_name TEXT UNIQUE NOT NULL,
+    reason TEXT DEFAULT 'Disabled by admin',
+    disabled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    disabled_by TEXT DEFAULT 'system'
+);
+CREATE TABLE IF NOT EXISTS connection_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    action TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    public_ip TEXT DEFAULT '-',
+    vpn_ip TEXT DEFAULT '-',
+    location TEXT DEFAULT '-',
+    platform TEXT DEFAULT '-',
+    duration TEXT DEFAULT '-'
+);
+CREATE TABLE IF NOT EXISTS mfa_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    username TEXT NOT NULL,
+    status TEXT NOT NULL,
+    details TEXT DEFAULT '',
+    ip TEXT DEFAULT '-'
+);
+CREATE TABLE IF NOT EXISTS client_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    action TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    details TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    level TEXT NOT NULL DEFAULT 'INFO',
+    action TEXT NOT NULL,
+    details TEXT DEFAULT '',
+    user TEXT DEFAULT 'system'
+);
+CREATE TABLE IF NOT EXISTS active_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_name TEXT UNIQUE NOT NULL,
+    public_ip TEXT DEFAULT '-',
+    vpn_ip TEXT DEFAULT '-',
+    location TEXT DEFAULT '-',
+    platform TEXT DEFAULT '-',
+    connected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_conn_time ON connection_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_conn_client ON connection_logs(client_name);
+CREATE INDEX IF NOT EXISTS idx_mfa_user_time ON mfa_logs(username, timestamp);
+CREATE INDEX IF NOT EXISTS idx_mfa_status ON mfa_logs(status);
+CREATE INDEX IF NOT EXISTS idx_client_act_time ON client_activity(timestamp);
+PRAGMA journal_mode=WAL;
+SQL_INIT
+    chmod 660 "$DB_FILE" 2>/dev/null || true
+fi
+
+# Enable IP forwarding and kernel network optimizations for high-throughput VPN
 mkdir -p /etc/sysctl.d
-echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-openvpn.conf
+cat > /etc/sysctl.d/99-openvpn.conf <<'SYSCTL'
+net.ipv4.ip_forward = 1
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 87380 33554432
+net.ipv4.tcp_wmem = 4096 65536 33554432
+SYSCTL
 if [ -f /etc/sysctl.conf ]; then
     sed -i 's/^#*net.ipv4.ip_forward=.*/net.ipv4.ip_forward=1/' /etc/sysctl.conf || true
 fi
 sysctl -p /etc/sysctl.d/99-openvpn.conf >/dev/null 2>&1 || sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-# Setup NAT iptables rule safely
+# Setup NAT iptables rule and TCPMSS clamping (prevents packet fragmentation & speed drops)
 if [ -n "$DEFAULT_IFACE" ]; then
     iptables -t nat -C POSTROUTING -s "$VPN_NET/$VPN_MASK" -o "$DEFAULT_IFACE" -j MASQUERADE 2>/dev/null || \
     iptables -t nat -A POSTROUTING -s "$VPN_NET/$VPN_MASK" -o "$DEFAULT_IFACE" -j MASQUERADE
+
+    iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+    iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
     netfilter-persistent save 2>/dev/null || true
 fi
 
@@ -108,6 +193,14 @@ keepalive 10 120
 inactive 300
 persist-key
 persist-tun
+tun-mtu 1500
+mssfix 1420
+sndbuf 524288
+rcvbuf 524288
+push "sndbuf 524288"
+push "rcvbuf 524288"
+push "block-outside-dns"
+management 127.0.0.1 7505
 auth-user-pass-verify /etc/openvpn/mfa-verify.sh via-env
 script-security 3
 verify-client-cert optional
@@ -159,6 +252,7 @@ USER="$username"
 # Sanitize username (remove spaces, force lowercase)
 USER=$(echo "$username" | sed 's/[\r\n\t ]//g' | tr '[:upper:]' '[:lower:]')
 PASS="$password"
+CLIENT_IP="${untrusted_ip:-${trusted_ip:--}}"
 
 DB_FILE="/etc/openvpn/zubby_vpn.db"
 SECRET_FILE="/etc/openvpn/mfa-secrets/$USER.secret"
@@ -247,7 +341,7 @@ if [ "$IS_DISABLED" -gt 0 ] || grep -q "^$USER$" "$DISABLED_LIST" 2>/dev/null; t
     echo "$TIME,$USER,BLOCKED_DISABLED" >> "$LOG_FILE"
     echo "$TIME,LOGIN_BLOCKED,$USER,Disabled user attempted login" >> "$CLIENT_LOG"
     if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
-        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details) VALUES ('$TIME', '$USER', 'BLOCKED_DISABLED', 'Disabled user attempted login');" 2>/dev/null || true
+        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details, ip) VALUES ('$TIME', '$USER', 'BLOCKED_DISABLED', 'Disabled user attempted login', '$CLIENT_IP');" 2>/dev/null || true
         sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'LOGIN_BLOCKED', '$USER', 'Disabled user attempted login');" 2>/dev/null || true
     fi
     exit 1
@@ -270,7 +364,7 @@ if oathtool --totp -b -w 2 "$SECRET" | grep -qx "$PASS"; then
     echo "$TIME,$USER,SUCCESS" >> "$LOG_FILE"
     echo "$TIME,LOGIN_ALLOWED,$USER,Login permitted" >> "$CLIENT_LOG"
     if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
-        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details) VALUES ('$TIME', '$USER', 'SUCCESS', 'Login permitted');" 2>/dev/null || true
+        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details, ip) VALUES ('$TIME', '$USER', 'SUCCESS', 'Login permitted', '$CLIENT_IP');" 2>/dev/null || true
         sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'LOGIN_ALLOWED', '$USER', 'Login permitted');" 2>/dev/null || true
     fi
     exit 0
@@ -278,7 +372,7 @@ else
     echo "$TIME,$USER,FAIL" >> "$LOG_FILE"
     echo "$TIME,LOGIN_FAIL,$USER,Incorrect MFA" >> "$CLIENT_LOG"
     if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
-        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details) VALUES ('$TIME', '$USER', 'FAIL', 'Incorrect MFA');" 2>/dev/null || true
+        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details, ip) VALUES ('$TIME', '$USER', 'FAIL', 'Incorrect MFA', '$CLIENT_IP');" 2>/dev/null || true
         sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'LOGIN_FAIL', '$USER', 'Incorrect MFA');" 2>/dev/null || true
     fi
 
@@ -295,8 +389,14 @@ else
             END{print (count+0)}' "$LOG_FILE")
     fi
 
-    # -------------------- SES Alert after 3 fails today --------------------
-    FAIL_COUNT_TODAY=$(grep "^$DATE_ONLY" "$LOG_FILE" 2>/dev/null | grep ",$USER,FAIL" | wc -l || echo 0)
+    # -------------------- SES Alert after 3 fails today (SQLite SSOT) --------------------
+    FAIL_COUNT_TODAY=0
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+        FAIL_COUNT_TODAY=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM mfa_logs WHERE username='$USER' AND status='FAIL' AND timestamp >= '$DATE_ONLY 00:00:00';" 2>/dev/null || echo 0)
+    fi
+    if [ "$FAIL_COUNT_TODAY" -eq 0 ] && [ -f "$LOG_FILE" ]; then
+        FAIL_COUNT_TODAY=$(grep "^$DATE_ONLY" "$LOG_FILE" 2>/dev/null | grep ",$USER,FAIL" | wc -l || echo 0)
+    fi
     if [ "$FAIL_COUNT_TODAY" -eq 3 ]; then
         SUBJECT="⚠️ MFA Alert: $USER failed MFA ($FAIL_COUNT_TODAY times today)"
         BODY_HTML="<html><body style='font-family:Arial,sans-serif;'>
@@ -323,8 +423,8 @@ else
             sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'DISABLED', '$USER', 'Auto-disabled due to excessive MFA failures');" 2>/dev/null || true
         fi
 
-        # Kick active sessions
-        $KICK_CMD -f "openvpn.*$USER" >/dev/null 2>&1 || true
+        # Kick active sessions via OpenVPN management interface
+        python3 -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 7505)); s.recv(1024); s.sendall(f'kill $USER\r\nquit\r\n'.encode()); s.close()" 2>/dev/null || true
         echo "$TIME,KICKED,$USER" >> "$CLIENT_LOG"
         if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
             sqlite3 "$DB_FILE" "DELETE FROM active_sessions WHERE client_name='$USER';" 2>/dev/null || true
@@ -411,11 +511,20 @@ VPN_IP="${ifconfig_pool_remote_ip:--}"
 PLATFORM="${IV_PLAT:--}"
 TIME="$(date '+%Y-%m-%d %H:%M:%S')"
 
-CONNECT_LINE=$(grep "CONNECTED via MFA,$CLIENT,$REAL_IP,$VPN_IP" "$MASTER_LOG" 2>/dev/null | tail -n 1)
+# Calculate duration using SQLite active_sessions first, falling back to master log
+START_TIME=""
+if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+    START_TIME=$(sqlite3 "$DB_FILE" "SELECT connected_at FROM active_sessions WHERE client_name='$CLIENT' ORDER BY id DESC LIMIT 1;" 2>/dev/null || echo "")
+fi
+if [ -z "$START_TIME" ]; then
+    CONNECT_LINE=$(grep "CONNECTED via MFA,$CLIENT,$REAL_IP,$VPN_IP" "$MASTER_LOG" 2>/dev/null | tail -n 1)
+    if [ -n "$CONNECT_LINE" ]; then
+        START_TIME=$(echo "$CONNECT_LINE" | cut -d',' -f1)
+    fi
+fi
 
-if [ -n "$CONNECT_LINE" ]; then
-    CONNECT_TIME=$(echo "$CONNECT_LINE" | cut -d',' -f1)
-    START_TS=$(date -d "$CONNECT_TIME" +%s 2>/dev/null || echo "")
+if [ -n "$START_TIME" ]; then
+    START_TS=$(date -d "$START_TIME" +%s 2>/dev/null || echo "")
     END_TS=$(date -d "$TIME" +%s 2>/dev/null || echo "")
     if [ -n "$START_TS" ] && [ -n "$END_TS" ]; then
         DURATION_SEC=$((END_TS - START_TS))

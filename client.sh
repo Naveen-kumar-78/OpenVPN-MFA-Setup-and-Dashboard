@@ -72,13 +72,20 @@ CONNECT_EOF
 
     chmod +x "$CLIENT_CONNECT_SCRIPT"
 
-    # Add client-connect directive to OpenVPN server config if not already present
-    if [ -f "$OPENVPN_CONFIG" ] && ! grep -q "client-connect" "$OPENVPN_CONFIG" 2>/dev/null; then
-        echo "script-security 2" >> "$OPENVPN_CONFIG"
-        echo "client-connect $CLIENT_CONNECT_SCRIPT" >> "$OPENVPN_CONFIG"
-        echo "✅ Added client-connect script to OpenVPN server config"
-        echo "⚠️ You need to restart OpenVPN server: systemctl restart openvpn-server@server"
-    fi
+    # Add client-connect and management directives to OpenVPN server config if not already present
+    for cfg in /etc/openvpn/server/server.conf /etc/openvpn/server.conf "$OPENVPN_CONFIG"; do
+        if [ -f "$cfg" ]; then
+            if ! grep -q "^management" "$cfg" 2>/dev/null; then
+                echo "management 127.0.0.1 7505" >> "$cfg"
+                echo "✅ Added management 127.0.0.1 7505 to $cfg"
+            fi
+            if ! grep -q "client-connect" "$cfg" 2>/dev/null; then
+                echo "script-security 2" >> "$cfg"
+                echo "client-connect $CLIENT_CONNECT_SCRIPT" >> "$cfg"
+                echo "✅ Added client-connect script to $cfg"
+            fi
+        fi
+    done
 }
 
 add_client() {
@@ -160,6 +167,8 @@ resolv-retry infinite
 nobind
 persist-key
 persist-tun
+tun-mtu 1500
+mssfix 1420
 remote-cert-tls server
 auth SHA512
 cipher AES-256-GCM
@@ -279,7 +288,11 @@ disable_client() {
     fi
 
     TIME=$(date '+%Y-%m-%d %H:%M:%S')
-    if ! grep -q "^$CLIENT$" "$DISABLED_LIST" 2>/dev/null; then
+    IS_DIS=0
+    if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$DB_FILE" ]]; then
+        IS_DIS=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM disabled_clients WHERE client_name='$CLIENT';" 2>/dev/null || echo 0)
+    fi
+    if [ "$IS_DIS" -eq 0 ] && ! grep -q "^$CLIENT$" "$DISABLED_LIST" 2>/dev/null; then
         echo "$CLIENT" >> "$DISABLED_LIST"
         echo "$TIME,DISABLED,$CLIENT" >> "$CLIENT_LOG"
         db_execute "INSERT OR REPLACE INTO disabled_clients (client_name, reason, disabled_at, disabled_by) VALUES ('$CLIENT', 'Manually disabled via CLI', '$TIME', 'cli');"
@@ -299,7 +312,11 @@ enable_client() {
     fi
 
     TIME=$(date '+%Y-%m-%d %H:%M:%S')
-    if grep -q "^$CLIENT$" "$DISABLED_LIST" 2>/dev/null; then
+    IS_DIS=0
+    if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$DB_FILE" ]]; then
+        IS_DIS=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM disabled_clients WHERE client_name='$CLIENT';" 2>/dev/null || echo 0)
+    fi
+    if [ "$IS_DIS" -gt 0 ] || grep -q "^$CLIENT$" "$DISABLED_LIST" 2>/dev/null; then
         sed -i "/^$CLIENT$/d" "$DISABLED_LIST" 2>/dev/null || true
         echo "$TIME,ENABLED,$CLIENT" >> "$CLIENT_LOG"
         db_execute "DELETE FROM disabled_clients WHERE client_name='$CLIENT';"
@@ -322,7 +339,11 @@ list_clients() {
     fi
 
     DISABLED_CLIENTS=()
-    if [[ -f "$DISABLED_LIST" ]]; then
+    if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$DB_FILE" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && DISABLED_CLIENTS+=("$line")
+        done < <(sqlite3 "$DB_FILE" "SELECT client_name FROM disabled_clients;" 2>/dev/null)
+    elif [[ -f "$DISABLED_LIST" ]]; then
         while IFS= read -r line; do
             [[ -n "$line" ]] && DISABLED_CLIENTS+=("$line")
         done < "$DISABLED_LIST"
@@ -345,7 +366,11 @@ show_client_status() {
     fi
 
     if [[ -f "$EASYRSA_DIR/pki/issued/$CLIENT.crt" ]]; then
-        if grep -q "^$CLIENT$" "$DISABLED_LIST" 2>/dev/null; then
+        IS_DIS=0
+        if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$DB_FILE" ]]; then
+            IS_DIS=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM disabled_clients WHERE client_name='$CLIENT';" 2>/dev/null || echo 0)
+        fi
+        if [ "$IS_DIS" -gt 0 ] || grep -q "^$CLIENT$" "$DISABLED_LIST" 2>/dev/null; then
             echo "DISABLED"
         else
             echo "ACTIVE"
@@ -363,14 +388,51 @@ kick_client() {
     fi
 
     TIME=$(date '+%Y-%m-%d %H:%M:%S')
-    if pkill -f "openvpn.*$CLIENT" 2>/dev/null; then
-        echo "Client $CLIENT kicked successfully"
-        db_execute "DELETE FROM active_sessions WHERE client_name='$CLIENT';"
-    else
-        echo "No active connection found for $CLIENT"
+    KICKED=false
+
+    # 1. Send kill command to OpenVPN management interface on 127.0.0.1:7505
+    if python3 -c "
+import socket, sys
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(2.5)
+    s.connect(('127.0.0.1', 7505))
+    s.recv(1024)
+    s.sendall(f'kill {sys.argv[1]}\r\nquit\r\n'.encode())
+    res = s.recv(1024).decode()
+    s.close()
+    sys.exit(0 if 'SUCCESS' in res or 'killed' in res.lower() else 1)
+except Exception:
+    sys.exit(1)
+" "$CLIENT" 2>/dev/null; then
+        KICKED=true
+        echo "✅ OpenVPN session for '$CLIENT' terminated via management socket"
+    elif command -v nc >/dev/null 2>&1 && { echo -e "kill $CLIENT\nquit" | nc -w 2 127.0.0.1 7505 2>/dev/null | grep -qi "SUCCESS"; }; then
+        KICKED=true
+        echo "✅ OpenVPN session for '$CLIENT' terminated via nc"
     fi
+
+    # 2. Block/drop traffic immediately on firewall if VPN IP is known
+    if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$DB_FILE" ]]; then
+        VPN_IP=$(sqlite3 "$DB_FILE" "SELECT vpn_ip FROM active_sessions WHERE client_name='$CLIENT' LIMIT 1;" 2>/dev/null || echo "")
+        if [[ -n "$VPN_IP" && "$VPN_IP" != "-" ]]; then
+            iptables -I FORWARD -s "$VPN_IP" -j DROP 2>/dev/null || true
+            iptables -I INPUT -s "$VPN_IP" -j DROP 2>/dev/null || true
+            (sleep 20 && iptables -D FORWARD -s "$VPN_IP" -j DROP 2>/dev/null && iptables -D INPUT -s "$VPN_IP" -j DROP 2>/dev/null) >/dev/null 2>&1 &
+        fi
+    fi
+
+    # 3. Clean up active_sessions in SQLite
+    db_execute "DELETE FROM active_sessions WHERE client_name='$CLIENT';"
     echo "$TIME,KICKED,$CLIENT" >> "$CLIENT_LOG"
     db_execute "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'KICKED', '$CLIENT', 'Disconnected by admin');"
+
+    if [[ "$KICKED" == true ]]; then
+        echo "Client $CLIENT kicked successfully"
+    else
+        echo "Notice: Active session for $CLIENT cleared and disconnect signal dispatched"
+    fi
+    return 0
 }
 
 # Non-interactive CLI flag parsing

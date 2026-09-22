@@ -251,6 +251,7 @@
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: 16px;
+      overflow: hidden;
       box-shadow: var(--card-shadow);
       color: var(--text-main);
       transition: background-color 0.2s ease, border-color 0.2s ease;
@@ -266,6 +267,11 @@
     .table {
       color: var(--text-main);
       border-color: var(--border-color);
+    }
+
+    .table th, .table td {
+      white-space: nowrap;
+      vertical-align: middle;
     }
 
     .table thead th {

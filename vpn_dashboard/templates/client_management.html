@@ -231,6 +231,7 @@
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: 16px;
+      overflow: hidden;
       box-shadow: var(--card-shadow);
       color: var(--text-main);
       transition: background-color 0.2s ease, border-color 0.2s ease;
@@ -244,6 +245,10 @@
     .table {
       color: var(--text-main);
       border-color: var(--border-color);
+    }
+    .table th, .table td {
+      white-space: nowrap;
+      vertical-align: middle;
     }
     .table thead th {
       background-color: var(--bg-table-header) !important;
@@ -413,13 +418,16 @@
     <div class="card-body py-3">
       <form method="post" action="/client_management">
         <input type="hidden" name="action" value="create">
-        <div class="row g-2 align-items-center">
+        <div class="row g-2 align-items-start">
           <div class="col-md-9">
-            <input type="text" name="client_name" class="form-control form-control-sm" placeholder="Enter unique client username (e.g. john.doe)" required pattern="[a-zA-Z0-9._-]+">
-            <small class="text-muted" style="font-size: 0.72rem;">Allowed characters: Letters, numbers, dots, hyphens, underscores</small>
+            <div class="input-group">
+              <span class="input-group-text bg-transparent text-muted" style="border-color: var(--border-color);"><i class="fas fa-user-plus"></i></span>
+              <input type="text" name="client_name" class="form-control" placeholder="Enter unique client username (e.g. john.doe)" required pattern="[a-zA-Z0-9._-]+" style="height: 38px;">
+            </div>
+            <small class="text-muted d-block mt-1" style="font-size: 0.72rem;">Allowed characters: Letters, numbers, dots, hyphens, underscores</small>
           </div>
           <div class="col-md-3">
-            <button type="submit" class="btn btn-sm btn-gradient w-100 py-1.5 fw-semibold">
+            <button type="submit" class="btn btn-gradient w-100 fw-semibold rounded-2 shadow-sm d-flex align-items-center justify-content-center" style="height: 38px;">
               <i class="fas fa-plus me-1"></i> Generate Client
             </button>
           </div>

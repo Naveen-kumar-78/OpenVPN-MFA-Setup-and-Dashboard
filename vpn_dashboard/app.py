@@ -40,6 +40,7 @@ CLIENT_LOG = "/var/log/openvpn/client_activity.log"
 CONNECTION_LOG = "/var/log/openvpn/connection_audit.log"
 DISABLED_LIST = "/etc/openvpn/disabled_clients.txt"
 AUDIT_LOG = "/var/log/openvpn/dashboard_audit.log"
+STATUS_LOG = "/var/log/openvpn/status.log"
 
 EASYRSA_DIR = "/etc/openvpn/server/easy-rsa"
 OUTPUT_DIR = "/root/ovpn_clients"
@@ -109,6 +110,32 @@ except Exception:
     )
 
 # ==========================
+# In-Memory IP Login Rate Limiter
+# ==========================
+LOGIN_ATTEMPTS = {}
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_LOCKOUT_WINDOW = 300  # 5 minutes in seconds
+
+def is_ip_rate_limited(ip):
+    """Check if client IP has exceeded maximum failed login attempts within window"""
+    now = datetime.datetime.now().timestamp()
+    attempts = LOGIN_ATTEMPTS.get(ip, [])
+    valid_attempts = [t for t in attempts if now - t < LOGIN_LOCKOUT_WINDOW]
+    LOGIN_ATTEMPTS[ip] = valid_attempts
+    return len(valid_attempts) >= MAX_LOGIN_ATTEMPTS
+
+def record_login_failure(ip):
+    """Record a failed login attempt for the given IP"""
+    now = datetime.datetime.now().timestamp()
+    if ip not in LOGIN_ATTEMPTS:
+        LOGIN_ATTEMPTS[ip] = []
+    LOGIN_ATTEMPTS[ip].append(now)
+
+def clear_login_failures(ip):
+    """Reset failed login attempts upon successful authentication"""
+    LOGIN_ATTEMPTS.pop(ip, None)
+
+# ==========================
 # SQLite Database Layer
 # ==========================
 def get_db():
@@ -176,7 +203,8 @@ def init_db():
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 username TEXT NOT NULL,
                 status TEXT NOT NULL,
-                details TEXT DEFAULT ''
+                details TEXT DEFAULT '',
+                ip TEXT DEFAULT '-'
             );
 
             CREATE TABLE IF NOT EXISTS client_activity (
@@ -296,6 +324,13 @@ def init_db():
                     conn.commit()
                 except Exception as e:
                     logging.warning(f"Error migrating MFA attempts: {e}")
+
+            # 5. Ensure mfa_logs has ip column
+            try:
+                cursor.execute("ALTER TABLE mfa_logs ADD COLUMN ip TEXT DEFAULT '-'")
+                conn.commit()
+            except Exception:
+                pass
     except Exception as e:
         logging.error(f"init_db error: {e}")
 
@@ -483,16 +518,44 @@ def enable_client(client_name):
     log_audit("INFO", "CLIENT_ENABLED", f"Client {clean_name} enabled")
     return True, f"Client {clean_name} enabled successfully"
 
+def kick_openvpn_mgmt(client_name):
+    """Directly terminate active OpenVPN tunnel via localhost management interface (127.0.0.1:7505)"""
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.5)
+        s.connect(('127.0.0.1', 7505))
+        s.recv(1024)
+        s.sendall(f"kill {client_name}\r\nquit\r\n".encode())
+        res = s.recv(1024).decode()
+        s.close()
+        logging.info(f"OpenVPN management kill {client_name} response: {res.strip()}")
+        return "SUCCESS" in res or "killed" in res.lower()
+    except Exception as e:
+        logging.warning(f"OpenVPN management socket connection failed: {e}")
+        return False
+
 def kick_client(client_name):
     clean_name = sanitize_client_name(client_name)
     if not clean_name:
         return False, "Invalid client name"
-    success, message = call_client_action("kick", clean_name)
+
+    # 1. Terminate live tunnel directly via OpenVPN management socket
+    mgmt_ok = kick_openvpn_mgmt(clean_name)
+
+    # 2. Delegate to client.sh for secondary firewall drops / CLI auditing
+    try:
+        call_client_action("kick", clean_name)
+    except Exception as e:
+        logging.warning(f"call_client_action kick warning: {e}")
+
+    # 3. Clean up active session in SQLite
     with get_db() as conn:
         conn.execute("DELETE FROM active_sessions WHERE client_name = ?", (clean_name,))
         conn.commit()
-    log_audit("INFO", "CLIENT_KICKED", f"Client {clean_name} kicked")
-    return success, message
+
+    log_audit("INFO", "CLIENT_KICKED", f"Client {clean_name} disconnected (mgmt_socket={'success' if mgmt_ok else 'dispatched'})")
+    return True, f"Client {clean_name} disconnected successfully"
 
 def sync_disabled_text_file():
     """Ensure /etc/openvpn/disabled_clients.txt matches SQLite disabled_clients"""
@@ -523,14 +586,61 @@ def load_disabled_clients():
         logging.error(f"Error loading disabled clients: {e}")
     return res
 
+def format_network_bytes(b):
+    """Format byte counts into human-readable strings"""
+    try:
+        val = float(b)
+        if val >= 1073741824:
+            return f"{val / 1073741824:.2f} GB"
+        if val >= 1048576:
+            return f"{val / 1048576:.1f} MB"
+        if val >= 1024:
+            return f"{val / 1024:.0f} KB"
+        return f"{int(val)} B"
+    except Exception:
+        return "-"
+
+def get_openvpn_live_traffic():
+    """Parse status.log for live bytes received and sent per active client"""
+    traffic = {}
+    if not os.path.exists(STATUS_LOG):
+        return traffic
+    try:
+        with open(STATUS_LOG, "r") as f:
+            lines = f.readlines()
+        is_client_section = False
+        for line in lines:
+            line = line.strip()
+            if "CLIENT LIST" in line or "ROUTING TABLE" in line:
+                is_client_section = "CLIENT LIST" in line
+                continue
+            if line.startswith("CLIENT_LIST,"):
+                parts = line.split(",")
+                if len(parts) >= 7:
+                    cname = parts[1].strip()
+                    rx = parts[5].strip()
+                    tx = parts[6].strip()
+                    traffic[cname] = (format_network_bytes(rx), format_network_bytes(tx))
+            elif is_client_section and "," in line and not line.startswith("Common Name"):
+                parts = line.split(",")
+                if len(parts) >= 4:
+                    cname = parts[0].strip()
+                    rx = parts[2].strip()
+                    tx = parts[3].strip()
+                    traffic[cname] = (format_network_bytes(rx), format_network_bytes(tx))
+    except Exception as e:
+        logging.debug(f"Error parsing status.log traffic: {e}")
+    return traffic
+
 # ==========================
 # Data Queries & Helpers
 # ==========================
 def get_active_users():
-    """Get active sessions from SQLite table, calculating live durations"""
+    """Get active sessions from SQLite table, calculating live durations and bandwidth"""
     active = []
     disabled = load_disabled_clients()
     now = datetime.datetime.now()
+    live_traffic = get_openvpn_live_traffic()
 
     try:
         with get_db() as conn:
@@ -546,6 +656,8 @@ def get_active_users():
                 except Exception:
                     dur_str = "-"
 
+                rx_bytes, tx_bytes = live_traffic.get(cname, ("-", "-"))
+
                 active.append({
                     "name": cname,
                     "client_name": cname,
@@ -558,50 +670,11 @@ def get_active_users():
                     "since": r["connected_at"],
                     "connected_since": r["connected_at"],
                     "duration": dur_str,
-                    "bytes_received": "-",
-                    "bytes_sent": "-"
+                    "bytes_received": rx_bytes,
+                    "bytes_sent": tx_bytes
                 })
     except Exception as e:
         logging.error(f"Error in get_active_users: {e}")
-
-    # Fallback to connection_logs replay if active_sessions table was empty
-    if not active and os.path.exists(MASTER_VPN_LOG):
-        active_map = {}
-        try:
-            with open(MASTER_VPN_LOG, "r") as f:
-                reader = csv.reader(f)
-                for parts in reader:
-                    if len(parts) < 7:
-                        continue
-                    timestamp, action, user, public_ip, vpn_ip, location, platform = parts[:7]
-                    if user in disabled:
-                        continue
-                    try:
-                        ts = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    if "CONNECT" in action.upper() and "DISCONNECT" not in action.upper():
-                        dur_sec = max(0, int((now - ts).total_seconds()))
-                        active_map[user] = {
-                            "name": user,
-                            "client_name": user,
-                            "real_ip": public_ip,
-                            "public_ip": public_ip,
-                            "vpn_ip": vpn_ip,
-                            "virtual_ip": vpn_ip,
-                            "location": location,
-                            "platform": platform,
-                            "since": timestamp,
-                            "connected_since": timestamp,
-                            "duration": str(datetime.timedelta(seconds=dur_sec)),
-                            "bytes_received": "-",
-                            "bytes_sent": "-"
-                        }
-                    elif "DISCONNECT" in action.upper():
-                        active_map.pop(user, None)
-            active = list(active_map.values())
-        except Exception:
-            pass
 
     return active
 
@@ -664,11 +737,11 @@ def get_connection_logs(from_date=None, to_date=None, search_query="", limit=200
     return logs
 
 def get_mfa_logs(from_date=None, to_date=None, search_query="", limit=200):
-    """Query MFA logs from SQLite"""
+    """Query MFA logs from SQLite with actual source IP and details separated"""
     logs = []
     try:
         with get_db() as conn:
-            query = "SELECT timestamp, username, status, details FROM mfa_logs WHERE 1=1"
+            query = "SELECT timestamp, username, status, details, COALESCE(ip, '-') as ip FROM mfa_logs WHERE 1=1"
             params = []
             if from_date:
                 query += " AND timestamp >= ?"
@@ -677,14 +750,15 @@ def get_mfa_logs(from_date=None, to_date=None, search_query="", limit=200):
                 query += " AND timestamp <= ?"
                 params.append(f"{to_date} 23:59:59")
             if search_query:
-                query += " AND (username LIKE ? OR status LIKE ? OR details LIKE ?)"
+                query += " AND (username LIKE ? OR status LIKE ? OR details LIKE ? OR ip LIKE ?)"
                 sq = f"%{search_query}%"
-                params.extend([sq, sq, sq])
+                params.extend([sq, sq, sq, sq])
             query += " ORDER BY timestamp DESC LIMIT ?"
             params.append(limit)
 
             rows = conn.execute(query, params).fetchall()
             for r in rows:
+                ip_val = r["ip"] if ("ip" in r.keys() and r["ip"] and r["ip"] != "-") else "-"
                 logs.append({
                     "timestamp": r["timestamp"],
                     "username": r["username"],
@@ -693,10 +767,40 @@ def get_mfa_logs(from_date=None, to_date=None, search_query="", limit=200):
                     "status": r["status"],
                     "action": r["status"],
                     "details": r["details"] or "-",
-                    "ip": r["details"] or "-"
+                    "ip": ip_val
                 })
     except Exception as e:
-        logging.error(f"get_mfa_logs error: {e}")
+        # Fallback if ip column does not exist yet
+        try:
+            with get_db() as conn:
+                query = "SELECT timestamp, username, status, details FROM mfa_logs WHERE 1=1"
+                params = []
+                if from_date:
+                    query += " AND timestamp >= ?"
+                    params.append(f"{from_date} 00:00:00")
+                if to_date:
+                    query += " AND timestamp <= ?"
+                    params.append(f"{to_date} 23:59:59")
+                if search_query:
+                    query += " AND (username LIKE ? OR status LIKE ? OR details LIKE ?)"
+                    sq = f"%{search_query}%"
+                    params.extend([sq, sq, sq])
+                query += " ORDER BY timestamp DESC LIMIT ?"
+                params.append(limit)
+                rows = conn.execute(query, params).fetchall()
+                for r in rows:
+                    logs.append({
+                        "timestamp": r["timestamp"],
+                        "username": r["username"],
+                        "user": r["username"],
+                        "client": r["username"],
+                        "status": r["status"],
+                        "action": r["status"],
+                        "details": r["details"] or "-",
+                        "ip": "-"
+                    })
+        except Exception as inner_e:
+            logging.error(f"get_mfa_logs error: {inner_e}")
     return logs
 
 def generate_advanced_pdf_report(log_type, filtered_logs, headers, metadata):
@@ -749,12 +853,19 @@ def generate_advanced_pdf_report(log_type, filtered_logs, headers, metadata):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        client_ip = request.remote_addr or "127.0.0.1"
+        if is_ip_rate_limited(client_ip):
+            log_audit("WARNING", "LOGIN_RATE_LIMITED", f"IP {client_ip} exceeded maximum failed login attempts")
+            flash("Too many failed login attempts from your IP. Please wait 5 minutes.", "warning")
+            return render_template("login.html"), 429
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
 
         with get_db() as conn:
             row = conn.execute("SELECT username, password_hash, role, email FROM users WHERE username = ?", (username,)).fetchone()
             if row and verify_user_password(row["password_hash"], password):
+                clear_login_failures(client_ip)
                 # If password was stored as legacy SHA256, upgrade to strong hash
                 if not (row["password_hash"].startswith("scrypt:") or row["password_hash"].startswith("pbkdf2:")):
                     new_hash = generate_password_hash(password)
@@ -767,7 +878,8 @@ def login():
                 flash(f"Welcome to Zubby VPN, {username}!", "success")
                 return redirect(url_for("dashboard"))
 
-        log_audit("WARNING", "LOGIN_FAILED", f"Invalid login attempt for {username}", username)
+        record_login_failure(client_ip)
+        log_audit("WARNING", "LOGIN_FAILED", f"Invalid login attempt for {username} from {client_ip}", username)
         flash("Invalid username or password", "error")
 
     return render_template("login.html")
@@ -1066,9 +1178,35 @@ def delete_user(username):
 @login_required
 @require_permission('audit_logs')
 def audit_logs():
+    from_date = request.args.get("from_date", "")
+    to_date = request.args.get("to_date", "")
+    search_query = request.args.get("search", "").strip()
+
+    query = "SELECT timestamp, level, level as target, action, details, user FROM audit_logs WHERE 1=1"
+    params = []
+    if from_date:
+        query += " AND timestamp >= ?"
+        params.append(f"{from_date} 00:00:00")
+    if to_date:
+        query += " AND timestamp <= ?"
+        params.append(f"{to_date} 23:59:59")
+    if search_query:
+        query += " AND (action LIKE ? OR details LIKE ? OR user LIKE ? OR level LIKE ?)"
+        sq = f"%{search_query}%"
+        params.extend([sq, sq, sq, sq])
+    query += " ORDER BY timestamp DESC LIMIT 500"
+
     with get_db() as conn:
-        rows = conn.execute("SELECT timestamp, level, level as target, action, details, user FROM audit_logs ORDER BY timestamp DESC LIMIT 500").fetchall()
-    return render_template("audit_logs.html", audit_logs=rows, current_user=current_user)
+        rows = conn.execute(query, params).fetchall()
+
+    return render_template(
+        "audit_logs.html",
+        audit_logs=rows,
+        from_date=from_date,
+        to_date=to_date,
+        search_query=search_query,
+        current_user=current_user
+    )
 
 @app.route("/audit_logs/export")
 @login_required
@@ -1081,8 +1219,8 @@ def audit_logs_export():
 @require_permission('download_reports')
 def export_logs(log_type, format):
     today = datetime.date.today().strftime("%Y-%m-%d")
-    from_date = request.args.get("from_date", today)
-    to_date = request.args.get("to_date", today)
+    from_date = request.args.get("from_date", "")
+    to_date = request.args.get("to_date", "")
     search_query = request.args.get("search", "").strip()
 
     if log_type == "vpn":
@@ -1091,16 +1229,29 @@ def export_logs(log_type, format):
         headers = ["Time", "Action", "Client", "Public IP", "VPN IP", "Location", "Platform", "Duration"]
     elif log_type == "mfa":
         raw_logs = get_mfa_logs(from_date, to_date, search_query, limit=5000)
-        logs = [[r["timestamp"], r["username"], r["status"], r["details"]] for r in raw_logs]
-        headers = ["Time", "Client", "Status", "Details"]
+        logs = [[r["timestamp"], r["username"], r["status"], r["details"], r["ip"]] for r in raw_logs]
+        headers = ["Time", "Username", "Outcome", "Details", "Source IP"]
     elif log_type == "client":
         with get_db() as conn:
             rows = conn.execute("SELECT timestamp, action, client_name, details FROM client_activity ORDER BY timestamp DESC LIMIT 5000").fetchall()
         logs = [[r[0], r[1], r[2], r[3]] for r in rows]
         headers = ["Time", "Action", "Client", "Details"]
     elif log_type == "audit":
+        query = "SELECT timestamp, level, action, details, user FROM audit_logs WHERE 1=1"
+        params = []
+        if from_date:
+            query += " AND timestamp >= ?"
+            params.append(f"{from_date} 00:00:00")
+        if to_date:
+            query += " AND timestamp <= ?"
+            params.append(f"{to_date} 23:59:59")
+        if search_query:
+            query += " AND (action LIKE ? OR details LIKE ? OR user LIKE ? OR level LIKE ?)"
+            sq = f"%{search_query}%"
+            params.extend([sq, sq, sq, sq])
+        query += " ORDER BY timestamp DESC LIMIT 5000"
         with get_db() as conn:
-            rows = conn.execute("SELECT timestamp, level, action, details, user FROM audit_logs ORDER BY timestamp DESC LIMIT 5000").fetchall()
+            rows = conn.execute(query, params).fetchall()
         logs = [[r[0], r[1], r[2], r[3], r[4]] for r in rows]
         headers = ["Time", "Level", "Action", "Details", "User"]
     else:
@@ -1114,13 +1265,43 @@ def export_logs(log_type, format):
         output.seek(0)
         log_audit("INFO", "EXPORT_CSV", f"Exported {log_type} logs ({len(logs)} records)")
         return send_file(
-            io.BytesIO(output.getvalue().encode()),
+            io.BytesIO(output.getvalue().encode('utf-8-sig')),
             mimetype="text/csv",
             download_name=f"{log_type}_logs_{datetime.date.today()}.csv",
             as_attachment=True
         )
+    elif format in ["excel", "xlsx"]:
+        try:
+            import pandas as pd
+            import openpyxl
+            df = pd.DataFrame(logs, columns=headers)
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name=f"{log_type.upper()} Logs")
+            output.seek(0)
+            log_audit("INFO", "EXPORT_EXCEL", f"Exported {log_type} Excel ({len(logs)} records)")
+            return send_file(
+                output,
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                download_name=f"{log_type}_report_{datetime.date.today()}.xlsx",
+                as_attachment=True
+            )
+        except Exception as e:
+            logging.warning(f"Excel export error: {e}, falling back to CSV")
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(headers)
+            writer.writerows(logs)
+            output.seek(0)
+            log_audit("INFO", "EXPORT_EXCEL", f"Exported {log_type} Excel-CSV ({len(logs)} records)")
+            return send_file(
+                io.BytesIO(output.getvalue().encode('utf-8-sig')),
+                mimetype="text/csv",
+                download_name=f"{log_type}_report_{datetime.date.today()}.csv",
+                as_attachment=True
+            )
     elif format == "pdf":
-        metadata = {'from_date': from_date, 'to_date': to_date, 'search_query': search_query}
+        metadata = {'from_date': from_date or 'All', 'to_date': to_date or 'All', 'search_query': search_query or 'None'}
         pdf_out = generate_advanced_pdf_report(log_type, logs, headers, metadata)
         log_audit("INFO", "EXPORT_PDF", f"Exported {log_type} PDF ({len(logs)} records)")
         return send_file(

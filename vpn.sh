@@ -16,7 +16,7 @@ LOG_DIR="/var/log/openvpn"
 DISABLED_LIST="/etc/openvpn/disabled_clients.txt"
 SERVICE_FILE="/etc/systemd/system/vpn_dashboard.service"
 VENV_DIR="$APP_DIR/venv"
-PYTHON_BIN="$VENV_DIR/bin/python"
+GUNICORN_BIN="$VENV_DIR/bin/gunicorn"
 PIP_BIN="$VENV_DIR/bin/pip"
 REQUIREMENTS_FILE="$APP_DIR/requirements.txt"
 
@@ -58,6 +58,31 @@ touch "$CLIENT_LOG" "$CONN_MASTER_LOG" "$DISABLED_LIST"
 chmod 664 "$CLIENT_LOG" "$CONN_MASTER_LOG"
 chmod 644 "$DISABLED_LIST"
 
+# Ensure OpenVPN server config has management interface and throughput optimizations enabled
+NEED_RESTART=false
+for cfg in /etc/openvpn/server/server.conf /etc/openvpn/server.conf; do
+    if [ -f "$cfg" ]; then
+        if ! grep -q "^management" "$cfg" 2>/dev/null; then
+            echo "management 127.0.0.1 7505" >> "$cfg"
+            echo "✅ Enabled OpenVPN management interface in $cfg"
+            NEED_RESTART=true
+        fi
+        if ! grep -q "mssfix" "$cfg" 2>/dev/null; then
+            echo -e "tun-mtu 1500\nmssfix 1420\nsndbuf 524288\nrcvbuf 524288\npush \"sndbuf 524288\"\npush \"rcvbuf 524288\"\npush \"block-outside-dns\"" >> "$cfg"
+            echo "✅ Enabled high-speed MTU and buffer optimizations in $cfg"
+            NEED_RESTART=true
+        fi
+    fi
+done
+
+# Ensure TCPMSS clamping rule is present in iptables to prevent packet fragmentation
+iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+
+if [ "$NEED_RESTART" = true ]; then
+    systemctl restart openvpn-server@server 2>/dev/null || systemctl restart openvpn 2>/dev/null || true
+fi
+
 # 3) Create python virtualenv and install python packages
 echo "=== Setting up Python virtual environment ==="
 if [ ! -d "$VENV_DIR" ]; then
@@ -75,6 +100,7 @@ flask-login
 reportlab
 psutil
 pandas
+openpyxl
 gunicorn
 werkzeug
 REQ
@@ -114,7 +140,7 @@ fi
 echo "=== Creating systemd service file: $SERVICE_FILE ==="
 cat > "$SERVICE_FILE" <<SERVICE
 [Unit]
-Description=Zubby VPN Dashboard Flask App with Client Management
+Description=Zubby VPN Dashboard (Production WSGI via Gunicorn)
 After=network.target
 
 [Service]
@@ -122,7 +148,7 @@ Type=simple
 User=root
 WorkingDirectory=$APP_DIR
 Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=$PYTHON_BIN $APP_DIR/app.py
+ExecStart=$GUNICORN_BIN --workers 3 --bind 0.0.0.0:5000 --timeout 90 --access-logfile /var/log/openvpn/dashboard_access.log --error-logfile /var/log/openvpn/dashboard_error.log app:app
 Restart=always
 RestartSec=5
 

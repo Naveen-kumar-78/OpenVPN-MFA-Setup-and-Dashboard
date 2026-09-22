@@ -231,6 +231,7 @@
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: 16px;
+      overflow: hidden;
       box-shadow: var(--card-shadow);
       color: var(--text-main);
       transition: background-color 0.2s ease, border-color 0.2s ease;
@@ -244,6 +245,10 @@
     .table {
       color: var(--text-main);
       border-color: var(--border-color);
+    }
+    .table th, .table td {
+      white-space: nowrap;
+      vertical-align: middle;
     }
     .table thead th {
       background-color: var(--bg-table-header) !important;
@@ -260,6 +265,28 @@
     }
     .table tbody tr:hover {
       background-color: var(--bg-table-row-hover);
+    }
+
+    /* Dropdown Menus */
+    .dropdown-menu {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      box-shadow: var(--card-shadow);
+      z-index: 1050;
+    }
+    .dropdown-menu .dropdown-header {
+      color: var(--text-muted);
+    }
+    .dropdown-item {
+      color: var(--text-main);
+    }
+    .dropdown-item:hover, .dropdown-item:focus {
+      background-color: var(--bg-table-row-hover);
+      color: #3b82f6;
+    }
+    .dropdown-divider {
+      border-color: var(--border-color);
     }
 
     /* Inputs & Controls */
@@ -431,7 +458,6 @@
       <h3 class="fw-bold mb-1"><i class="fas fa-shield-halved text-primary me-2"></i> Zubby VPN Dashboard</h3>
       <div class="d-flex align-items-center gap-2">
         <span class="badge bg-success rounded-pill px-2.5 py-1 text-xs"><i class="fas fa-circle me-1 fa-beat" style="font-size: 8px;"></i> OpenVPN Online</span>
-        <span class="badge bg-info text-dark rounded-pill px-2.5 py-1 text-xs"><i class="fas fa-database me-1"></i> SQLite Engine</span>
         <small class="text-muted ms-2" id="last-updated-text">Auto-refresh active</small>
       </div>
     </div>
@@ -501,6 +527,52 @@
     </div>
   </div>
 
+  <!-- Search, Date Filter & Export Bar -->
+  <div class="card mb-4 shadow-sm" style="overflow: visible; position: relative; z-index: 20;">
+    <div class="card-body py-3 px-4" style="overflow: visible;">
+      <form method="get" action="/" class="row g-2 align-items-end">
+        <div class="col-lg-4 col-md-12">
+          <label class="form-label text-muted small fw-semibold mb-1"><i class="fas fa-search me-1"></i> Search Client / IP</label>
+          <input type="text" name="search" class="form-control form-control-sm" placeholder="Search by name, IP, status..." value="{{ search_query }}">
+        </div>
+        <div class="col-lg-2 col-md-3 col-6">
+          <label class="form-label text-muted small fw-semibold mb-1"><i class="fas fa-calendar-day me-1"></i> From Date</label>
+          <input type="date" name="from_date" class="form-control form-control-sm" value="{{ from_date }}">
+        </div>
+        <div class="col-lg-2 col-md-3 col-6">
+          <label class="form-label text-muted small fw-semibold mb-1"><i class="fas fa-calendar-check me-1"></i> To Date</label>
+          <input type="date" name="to_date" class="form-control form-control-sm" value="{{ to_date }}">
+        </div>
+        <div class="col-lg-2 col-md-3 col-6">
+          <div class="d-flex gap-1">
+            <button type="submit" class="btn btn-sm btn-primary w-100 py-1.5 fw-semibold rounded-2">
+              <i class="fas fa-filter me-1"></i> Filter
+            </button>
+            <a href="/" class="btn btn-sm btn-outline-secondary py-1.5 px-2.5 rounded-2" title="Reset Filters">
+              <i class="fas fa-rotate-left"></i>
+            </a>
+          </div>
+        </div>
+        <div class="col-lg-2 col-md-3 col-6">
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle w-100 py-1.5 fw-semibold rounded-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-download me-1"></i> Export Logs
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="font-size: 0.85rem;">
+              <li><h6 class="dropdown-header text-uppercase fw-bold text-xs">Connection Logs</h6></li>
+              <li><a class="dropdown-item py-1.5" href="/export/vpn/excel?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}"><i class="fas fa-file-excel text-success me-2"></i> Connection Logs (Excel)</a></li>
+              <li><a class="dropdown-item py-1.5" href="/export/vpn/pdf?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}"><i class="fas fa-file-pdf text-danger me-2"></i> Connection Logs (PDF)</a></li>
+              <li><hr class="dropdown-divider my-1"></li>
+              <li><h6 class="dropdown-header text-uppercase fw-bold text-xs">MFA Authentication Logs</h6></li>
+              <li><a class="dropdown-item py-1.5" href="/export/mfa/excel?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}"><i class="fas fa-file-excel text-success me-2"></i> MFA Logs (Excel)</a></li>
+              <li><a class="dropdown-item py-1.5" href="/export/mfa/pdf?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}"><i class="fas fa-file-pdf text-danger me-2"></i> MFA Logs (PDF)</a></li>
+            </ul>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Active Connections Card -->
   <div class="card mb-4" id="active-users-card">
     <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
@@ -559,9 +631,19 @@
   <div class="row g-3">
     <div class="col-lg-6">
       <div class="card mb-4 h-100">
-        <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
+        <div class="card-header py-2.5 d-flex justify-content-between align-items-center flex-wrap gap-2">
           <h6 class="mb-0 fw-semibold"><i class="fas fa-clock-rotate-left text-primary me-2"></i> Recent VPN Connections</h6>
-          <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ vpn_logs|length }} entries</span>
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ vpn_logs|length }} entries</span>
+            <div class="btn-group btn-group-sm">
+              <a href="/export/vpn/excel?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}" class="btn btn-sm btn-outline-success py-0.5 px-2" title="Export Connection Logs to Excel">
+                <i class="fas fa-file-excel me-1"></i> Excel
+              </a>
+              <a href="/export/vpn/pdf?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}" class="btn btn-sm btn-outline-danger py-0.5 px-2" title="Export Connection Logs to PDF">
+                <i class="fas fa-file-pdf me-1"></i> PDF
+              </a>
+            </div>
+          </div>
         </div>
         <div class="card-body p-0">
           {% if vpn_logs %}
@@ -598,9 +680,19 @@
 
     <div class="col-lg-6">
       <div class="card mb-4 h-100">
-        <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
+        <div class="card-header py-2.5 d-flex justify-content-between align-items-center flex-wrap gap-2">
           <h6 class="mb-0 fw-semibold"><i class="fas fa-key text-warning me-2"></i> MFA Authentication Audit</h6>
-          <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ mfa_logs|length }} entries</span>
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ mfa_logs|length }} entries</span>
+            <div class="btn-group btn-group-sm">
+              <a href="/export/mfa/excel?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}" class="btn btn-sm btn-outline-success py-0.5 px-2" title="Export MFA Logs to Excel">
+                <i class="fas fa-file-excel me-1"></i> Excel
+              </a>
+              <a href="/export/mfa/pdf?from_date={{ from_date }}&to_date={{ to_date }}&search={{ search_query }}" class="btn btn-sm btn-outline-danger py-0.5 px-2" title="Export MFA Logs to PDF">
+                <i class="fas fa-file-pdf me-1"></i> PDF
+              </a>
+            </div>
+          </div>
         </div>
         <div class="card-body p-0">
           {% if mfa_logs %}
@@ -611,6 +703,7 @@
                   <th class="ps-3">Timestamp</th>
                   <th>Username</th>
                   <th>Outcome</th>
+                  <th>Details / Reason</th>
                   <th>Source IP</th>
                 </tr>
               </thead>
@@ -626,6 +719,7 @@
                       <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-0.5" style="font-size: 0.72rem;">FAILED</span>
                     {% endif %}
                   </td>
+                  <td><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-0.5" style="font-size: 0.72rem;">{{ log.details }}</span></td>
                   <td><code>{{ log.ip }}</code></td>
                 </tr>
                 {% endfor %}

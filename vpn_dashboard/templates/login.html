@@ -73,6 +73,7 @@
       max-width: 420px;
       width: 100%;
       border-radius: 20px;
+      overflow: hidden;
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
       box-shadow: var(--card-shadow);
@@ -143,8 +144,11 @@
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
-          <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3">
-            <i class="fas fa-circle-exclamation me-1"></i> {{ message }}
+          {% set alert_type = 'danger' if category in ['error', 'danger'] else ('warning' if category == 'warning' else ('success' if category == 'success' else 'info')) %}
+          {% set icon_type = 'circle-exclamation' if category in ['error', 'danger'] else ('triangle-exclamation' if category == 'warning' else ('circle-check' if category == 'success' else 'circle-info')) %}
+          <div class="alert alert-{{ alert_type }} py-2 px-3 small rounded-3 mb-3 d-flex align-items-center shadow-sm">
+            <i class="fas fa-{{ icon_type }} me-2"></i>
+            <div>{{ message }}</div>
           </div>
         {% endfor %}
       {% endif %}

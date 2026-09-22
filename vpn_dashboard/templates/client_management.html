@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme or 'dark' }}" data-bs-theme="{{ current_theme or 'dark' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client Management - Zubby VPN</title>
+  <script>
+    (function() {
+      var savedTheme = localStorage.getItem('zubby_theme') || '{{ current_theme or "dark" }}';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      document.documentElement.setAttribute('data-bs-theme', savedTheme);
+    })();
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root, [data-theme="dark"], [data-bs-theme="dark"] {
+      --bg-body: #0b132b;
+      --bg-sidebar: #111827;
+      --bg-card: #1c2541;
+      --bg-card-header: #151d36;
+      --bg-input: #0f172a;
+      --bg-table-header: #0f172a;
+      --bg-table-row-hover: rgba(255, 255, 255, 0.04);
+      --border-color: #334155;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-secondary: #cbd5e1;
+      --code-bg: #0f172a;
+      --code-color: #38bdf8;
+      --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      --rail-bg: #111827;
+    }
+
+    [data-theme="light"], [data-bs-theme="light"] {
+      --bg-body: #f1f5f9;
+      --bg-sidebar: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-header: #f8fafc;
+      --bg-input: #ffffff;
+      --bg-table-header: #f8fafc;
+      --bg-table-row-hover: rgba(59, 130, 246, 0.05);
+      --border-color: #e2e8f0;
+      --border-subtle: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-secondary: #334155;
+      --code-bg: #e2e8f0;
+      --code-color: #0284c7;
+      --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      --rail-bg: #ffffff;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      min-height: 100vh;
+      margin: 0;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Static Corner Rail (Icon Only, Tooltip on Hover) */
+    .static-nav-rail {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 64px;
+      background-color: var(--rail-bg);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      z-index: 1040;
+      box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .rail-brand {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      margin-bottom: 24px;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+      position: relative;
+    }
+    .rail-brand .rail-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+      z-index: 1060;
+    }
+    .rail-brand .rail-tooltip::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      transform: translateY(-50%);
+      border-width: 5px 6px 5px 0;
+      border-style: solid;
+      border-color: transparent var(--border-color) transparent transparent;
+    }
+    .rail-brand:hover .rail-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) translateX(0);
+    }
+    .rail-nav {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      align-items: center;
+    }
+    .rail-item {
+      position: relative;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .rail-link, .rail-btn {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 1.15rem;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .rail-link:hover, .rail-btn:hover {
+      color: #3b82f6;
+      background-color: var(--bg-table-row-hover);
+      transform: translateY(-1px);
+    }
+    .rail-link.active {
+      color: #ffffff !important;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Tooltip showing name on cursor hover */
+    .rail-link .rail-tooltip, .rail-btn .rail-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+      z-index: 1060;
+    }
+    .rail-link .rail-tooltip::before, .rail-btn .rail-tooltip::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      transform: translateY(-50%);
+      border-width: 5px 6px 5px 0;
+      border-style: solid;
+      border-color: transparent var(--border-color) transparent transparent;
+    }
+    .rail-link:hover .rail-tooltip, .rail-btn:hover .rail-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) translateX(0);
+    }
+
+    .rail-bottom {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      align-items: center;
+    }
+
+    /* Main Content Container Offset for Corner Menu */
+    .main-viewport {
+      margin-left: 64px;
+      min-height: 100vh;
+      padding: 24px 32px;
+      transition: margin 0.2s ease;
+    }
+
+    /* Cards & Tables */
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      box-shadow: var(--card-shadow);
+      color: var(--text-main);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .card-header {
+      background-color: var(--bg-card-header);
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .table {
+      color: var(--text-main);
+      border-color: var(--border-color);
+    }
+    .table thead th {
+      background-color: var(--bg-table-header) !important;
+      color: var(--text-muted);
+      border-color: var(--border-color);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .table tbody tr {
+      background-color: var(--bg-card);
+      border-color: var(--border-color);
+      color: var(--text-main);
+    }
+    .table tbody tr:hover {
+      background-color: var(--bg-table-row-hover);
+    }
+
+    /* Inputs & Controls */
+    .form-control, .form-select {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      border-radius: 8px;
+    }
+    .form-control:focus, .form-select:focus {
+      background-color: var(--bg-input);
+      border-color: #3b82f6;
+      color: var(--text-main);
+      box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.2);
+    }
+    .form-control::placeholder {
+      color: var(--text-muted);
+      opacity: 0.7;
+    }
+
+    /* Buttons */
+    .btn-gradient {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      border: none;
+      transition: all 0.2s ease;
+    }
+    .btn-gradient:hover {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+    }
+    .text-muted { color: var(--text-muted) !important; }
+    .border-subtle { border-color: var(--border-color) !important; }
+
+    /* Badges */
+    .badge-active { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 500; }
+    .badge-disabled { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 500; }
+
+    code {
+      background: var(--code-bg);
+      color: var(--code-color);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    @media (max-width: 768px) {
+      .static-nav-rail {
+        width: 100%;
+        height: 56px;
+        top: auto;
+        bottom: 0;
+        flex-direction: row;
+        justify-content: space-around;
+        padding: 0 8px;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+      }
+      .rail-brand { display: none; }
+      .rail-nav { flex-direction: row; justify-content: space-around; }
+      .rail-bottom { display: none; }
+      .main-viewport { margin-left: 0; margin-bottom: 60px; padding: 16px; }
+      .rail-link .rail-tooltip, .rail-btn .rail-tooltip { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Static Corner Navigation Rail (Icons Only, Name on Hover) -->
+  <nav class="static-nav-rail">
+    <a href="/" class="rail-brand" title="Zubby VPN">
+      <i class="fas fa-shield-halved"></i>
+      <span class="rail-tooltip">Zubby VPN</span>
+    </a>
+    <ul class="rail-nav">
+      <li class="rail-item">
+        <a href="/" class="rail-link ">
+          <i class="fas fa-gauge-high"></i>
+          <span class="rail-tooltip">Dashboard</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/clients" class="rail-link ">
+          <i class="fas fa-wave-square"></i>
+          <span class="rail-tooltip">Live Activity</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/client_management" class="rail-link active">
+          <i class="fas fa-sliders"></i>
+          <span class="rail-tooltip">Client Management</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/user_management" class="rail-link ">
+          <i class="fas fa-users-gear"></i>
+          <span class="rail-tooltip">User Management</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/audit_logs" class="rail-link ">
+          <i class="fas fa-file-shield"></i>
+          <span class="rail-tooltip">Audit Logs</span>
+        </a>
+      </li>
+    </ul>
+    <div class="rail-bottom">
+      <button class="rail-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+        <i class="fas fa-moon text-info" id="theme-icon"></i>
+        <span class="rail-tooltip" id="theme-tooltip">Theme: Dark</span>
+      </button>
+      <a href="/logout" class="rail-link text-danger" title="Logout">
+        <i class="fas fa-arrow-right-from-bracket"></i>
+        <span class="rail-tooltip">Logout</span>
+      </a>
+    </div>
+  </nav>
+
+<div class="main-viewport">
+  <!-- Page Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div>
+      <h3 class="mb-1 fw-bold"><i class="fas fa-sliders text-primary me-2"></i> Client Management</h3>
+      <small class="text-muted">Create, configure, search, block and revoke client certificates</small>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <a href="/" class="btn btn-sm btn-outline-secondary rounded-pill px-3">
+        <i class="fas fa-arrow-left me-1"></i> Dashboard
+      </a>
+    </div>
+  </div>
+
+  <!-- Flashed Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show rounded-3 py-2 px-3 small">
+          <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} me-2"></i>
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Create Client Card -->
+  <div class="card mb-4">
+    <div class="card-header py-2.5">
+      <h6 class="mb-0 fw-semibold"><i class="fas fa-user-plus text-success me-2"></i> Create New VPN Client</h6>
+    </div>
+    <div class="card-body py-3">
+      <form method="post" action="/client_management">
+        <input type="hidden" name="action" value="create">
+        <div class="row g-2 align-items-center">
+          <div class="col-md-9">
+            <input type="text" name="client_name" class="form-control form-control-sm" placeholder="Enter unique client username (e.g. john.doe)" required pattern="[a-zA-Z0-9._-]+">
+            <small class="text-muted" style="font-size: 0.72rem;">Allowed characters: Letters, numbers, dots, hyphens, underscores</small>
+          </div>
+          <div class="col-md-3">
+            <button type="submit" class="btn btn-sm btn-gradient w-100 py-1.5 fw-semibold">
+              <i class="fas fa-plus me-1"></i> Generate Client
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Existing Clients Table with Search Option -->
+  <div class="card mb-4">
+    <div class="card-header py-2.5 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="d-flex align-items-center gap-2">
+        <h6 class="mb-0 fw-semibold"><i class="fas fa-users text-primary me-2"></i> Registered Clients</h6>
+        <span class="badge bg-primary rounded-pill px-2.5 py-1 text-xs" id="clientCountBadge">{{ existing_clients|length }} Total</span>
+      </div>
+      <!-- User Search Option -->
+      <div class="d-flex align-items-center gap-2">
+        <div class="input-group input-group-sm" style="max-width: 280px;">
+          <span class="input-group-text bg-transparent border-end-0 text-muted" style="border-color: var(--border-color);">
+            <i class="fas fa-search"></i>
+          </span>
+          <input type="text" id="clientSearchInput" class="form-control border-start-0" placeholder="Search clients..." oninput="filterClientsTable()" autocomplete="off">
+          <button class="btn btn-outline-secondary" type="button" onclick="clearClientSearch()" id="clientSearchClear" style="display: none;" title="Clear search">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      {% if existing_clients %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle" id="clientsTable">
+          <thead>
+            <tr>
+              <th class="ps-4">Client Name</th>
+              <th>Status</th>
+              <th>Downloads</th>
+              <th class="text-end pe-4">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for client in existing_clients %}
+            <tr class="client-row" data-client-name="{{ client|lower }}">
+              <td class="ps-4">
+                <i class="fas fa-user-shield me-2 text-primary"></i>
+                <strong class="client-name-text">{{ client }}</strong>
+              </td>
+              <td>
+                {% if client in disabled_clients %}
+                  <span class="badge badge-disabled">
+                    <i class="fas fa-ban me-1"></i> Disabled
+                  </span>
+                  <br><small class="text-muted" style="font-size: 0.72rem;">{{ disabled_clients[client].reason }} (by {{ disabled_clients[client].by or disabled_clients[client].disabled_by or 'admin' }})</small>
+                {% else %}
+                  <span class="badge badge-active">
+                    <i class="fas fa-check-circle me-1"></i> Active
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="btn-group btn-group-sm">
+                  <a href="{{ url_for('download_ovpn', client_name=client) }}" class="btn btn-sm btn-outline-primary py-1 px-2" title="Download .ovpn Profile">
+                    <i class="fas fa-download me-1"></i> .ovpn
+                  </a>
+                  <a href="{{ url_for('download_qr', client_name=client) }}" class="btn btn-sm btn-outline-info py-1 px-2" title="Download MFA QR Code">
+                    <i class="fas fa-qrcode me-1"></i> QR
+                  </a>
+                  <button type="button" class="btn btn-sm btn-outline-secondary py-1 px-2" data-bs-toggle="modal" data-bs-target="#qrModal-{{ loop.index }}" title="View QR in Browser">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </div>
+              </td>
+              <td class="text-end pe-4">
+                <div class="d-inline-flex gap-1 flex-wrap justify-content-end">
+                  {% if client in disabled_clients %}
+                    <form method="post" action="/client_management" class="d-inline">
+                      <input type="hidden" name="action" value="enable">
+                      <input type="hidden" name="client_name" value="{{ client }}">
+                      <button type="submit" class="btn btn-sm btn-outline-success py-1 px-2" onclick="return confirm('Enable client {{ client }}?')" title="Enable client">
+                        <i class="fas fa-play me-1"></i> Enable
+                      </button>
+                    </form>
+                  {% else %}
+                    <button type="button" class="btn btn-sm btn-outline-warning py-1 px-2" data-bs-toggle="modal" data-bs-target="#disableModal-{{ loop.index }}" title="Disable client">
+                      <i class="fas fa-ban me-1"></i> Disable
+                    </button>
+                  {% endif %}
+                  <form method="post" action="/client_management" class="d-inline">
+                    <input type="hidden" name="action" value="kick">
+                    <input type="hidden" name="client_name" value="{{ client }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="return confirm('Kick active session for {{ client }}?')" title="Disconnect session">
+                      <i class="fas fa-bolt me-1"></i> Kick
+                    </button>
+                  </form>
+                  <form method="post" action="/client_management" class="d-inline">
+                    <input type="hidden" name="action" value="revoke">
+                    <input type="hidden" name="client_name" value="{{ client }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-1 px-2" onclick="return confirm('PERMANENTLY REVOKE certificate for {{ client }}?')" title="Revoke certificate">
+                      <i class="fas fa-trash me-1"></i> Revoke
+                    </button>
+                  </form>
+                </div>
+
+                <!-- Disable Modal -->
+                <div class="modal fade" id="disableModal-{{ loop.index }}" tabindex="-1" aria-hidden="true">
+                  <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content" style="background-color: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">
+                      <form method="post" action="/client_management">
+                        <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                          <h6 class="modal-title fw-bold text-warning"><i class="fas fa-ban me-2"></i> Disable Client: {{ client }}</h6>
+                          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body text-start">
+                          <input type="hidden" name="action" value="disable">
+                          <input type="hidden" name="client_name" value="{{ client }}">
+                          <label class="form-label small fw-semibold">Reason for disabling:</label>
+                          <input type="text" name="reason" class="form-control form-control-sm" placeholder="e.g. Employee on leave, security review" required>
+                        </div>
+                        <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                          <button type="submit" class="btn btn-sm btn-warning">Confirm Disable</button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- QR Modal -->
+                <div class="modal fade" id="qrModal-{{ loop.index }}" tabindex="-1" aria-hidden="true">
+                  <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content text-center p-3" style="background-color: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main);">
+                      <div class="modal-header border-0 pb-0">
+                        <h6 class="modal-title fw-bold"><i class="fas fa-qrcode text-info me-2"></i> MFA QR: {{ client }}</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="p-3 bg-white d-inline-block rounded-3 shadow-sm my-2">
+                          <img src="{{ url_for('download_qr', client_name=client) }}" alt="MFA QR Code" style="max-width: 220px;" class="img-fluid">
+                        </div>
+                        <p class="small text-muted mb-0">Scan with Google Authenticator or Microsoft Authenticator.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            <tr id="noMatchingRow" style="display: none;">
+              <td colspan="4" class="text-center py-4 text-muted">
+                <i class="fas fa-filter-circle-xmark fa-2x mb-2 opacity-50"></i>
+                <p class="mb-0">No clients matching "<span id="searchQueryDisplay" class="fw-semibold"></span>"</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center py-5 text-muted">
+        <i class="fas fa-users-slash fa-3x mb-3 opacity-50"></i>
+        <h6>No Clients Found</h6>
+        <p class="small">Use the form above to generate your first client configuration.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function applyTheme(theme) {
+  if (!theme) theme = 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-bs-theme', theme);
+  localStorage.setItem('zubby_theme', theme);
+  document.cookie = "zubby_theme=" + theme + "; path=/; max-age=31536000; SameSite=Lax";
+  
+  const icon = document.getElementById('theme-icon');
+  const tip = document.getElementById('theme-tooltip');
+  if (icon) {
+    if (theme === 'light') {
+      icon.className = 'fas fa-sun text-warning';
+      if (tip) tip.textContent = 'Theme: Light';
+    } else {
+      icon.className = 'fas fa-moon text-info';
+      if (tip) tip.textContent = 'Theme: Dark';
+    }
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const target = current === 'dark' ? 'light' : 'dark';
+  applyTheme(target);
+}
+
+// Cross-tab synchronization
+window.addEventListener('storage', function(e) {
+  if (e.key === 'zubby_theme' && e.newValue) {
+    applyTheme(e.newValue);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const saved = localStorage.getItem('zubby_theme') || 'dark';
+  applyTheme(saved);
+});
+</script>
+<script>
+function filterClientsTable() {
+  const input = document.getElementById('clientSearchInput');
+  const query = input.value.toLowerCase().trim();
+  const clearBtn = document.getElementById('clientSearchClear');
+  if (clearBtn) clearBtn.style.display = query ? 'inline-block' : 'none';
+  
+  const rows = document.querySelectorAll('#clientsTable tbody tr.client-row');
+  let matched = 0;
+  rows.forEach(r => {
+    const name = r.getAttribute('data-client-name') || '';
+    if (!query || name.includes(query)) {
+      r.style.display = '';
+      matched++;
+    } else {
+      r.style.display = 'none';
+    }
+  });
+  const noMatch = document.getElementById('noMatchingRow');
+  if (noMatch) {
+    noMatch.style.display = (matched === 0 && rows.length > 0) ? '' : 'none';
+    const disp = document.getElementById('searchQueryDisplay');
+    if (disp) disp.textContent = input.value.trim();
+  }
+  const badge = document.getElementById('clientCountBadge');
+  if (badge) {
+    badge.textContent = query ? (matched + ' of ' + rows.length) : (rows.length + ' Total');
+  }
+}
+
+function clearClientSearch() {
+  const input = document.getElementById('clientSearchInput');
+  if (input) {
+    input.value = '';
+    filterClientsTable();
+    input.focus();
+  }
+}
+</script>
+</body>
+</html>

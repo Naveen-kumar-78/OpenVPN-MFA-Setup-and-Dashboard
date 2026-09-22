@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme or 'dark' }}" data-bs-theme="{{ current_theme or 'dark' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zubby VPN Dashboard</title>
+  <script>
+    (function() {
+      var savedTheme = localStorage.getItem('zubby_theme') || '{{ current_theme or "dark" }}';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      document.documentElement.setAttribute('data-bs-theme', savedTheme);
+    })();
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root, [data-theme="dark"], [data-bs-theme="dark"] {
+      --bg-body: #0b132b;
+      --bg-sidebar: #111827;
+      --bg-card: #1c2541;
+      --bg-card-header: #151d36;
+      --bg-input: #0f172a;
+      --bg-table-header: #0f172a;
+      --bg-table-row-hover: rgba(255, 255, 255, 0.04);
+      --border-color: #334155;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-secondary: #cbd5e1;
+      --code-bg: #0f172a;
+      --code-color: #38bdf8;
+      --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      --rail-bg: #111827;
+    }
+
+    [data-theme="light"], [data-bs-theme="light"] {
+      --bg-body: #f1f5f9;
+      --bg-sidebar: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-header: #f8fafc;
+      --bg-input: #ffffff;
+      --bg-table-header: #f8fafc;
+      --bg-table-row-hover: rgba(59, 130, 246, 0.05);
+      --border-color: #e2e8f0;
+      --border-subtle: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-secondary: #334155;
+      --code-bg: #e2e8f0;
+      --code-color: #0284c7;
+      --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      --rail-bg: #ffffff;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      min-height: 100vh;
+      margin: 0;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Static Corner Rail (Icon Only, Tooltip on Hover) */
+    .static-nav-rail {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 64px;
+      background-color: var(--rail-bg);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      z-index: 1040;
+      box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .rail-brand {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      margin-bottom: 24px;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+      position: relative;
+    }
+    .rail-brand .rail-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+      z-index: 1060;
+    }
+    .rail-brand .rail-tooltip::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      transform: translateY(-50%);
+      border-width: 5px 6px 5px 0;
+      border-style: solid;
+      border-color: transparent var(--border-color) transparent transparent;
+    }
+    .rail-brand:hover .rail-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) translateX(0);
+    }
+    .rail-nav {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      align-items: center;
+    }
+    .rail-item {
+      position: relative;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .rail-link, .rail-btn {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 1.15rem;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .rail-link:hover, .rail-btn:hover {
+      color: #3b82f6;
+      background-color: var(--bg-table-row-hover);
+      transform: translateY(-1px);
+    }
+    .rail-link.active {
+      color: #ffffff !important;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Tooltip showing name on cursor hover */
+    .rail-link .rail-tooltip, .rail-btn .rail-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+      z-index: 1060;
+    }
+    .rail-link .rail-tooltip::before, .rail-btn .rail-tooltip::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      transform: translateY(-50%);
+      border-width: 5px 6px 5px 0;
+      border-style: solid;
+      border-color: transparent var(--border-color) transparent transparent;
+    }
+    .rail-link:hover .rail-tooltip, .rail-btn:hover .rail-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) translateX(0);
+    }
+
+    .rail-bottom {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      align-items: center;
+    }
+
+    /* Main Content Container Offset for Corner Menu */
+    .main-viewport {
+      margin-left: 64px;
+      min-height: 100vh;
+      padding: 24px 32px;
+      transition: margin 0.2s ease;
+    }
+
+    /* Cards & Tables */
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      box-shadow: var(--card-shadow);
+      color: var(--text-main);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .card-header {
+      background-color: var(--bg-card-header);
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .table {
+      color: var(--text-main);
+      border-color: var(--border-color);
+    }
+    .table thead th {
+      background-color: var(--bg-table-header) !important;
+      color: var(--text-muted);
+      border-color: var(--border-color);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .table tbody tr {
+      background-color: var(--bg-card);
+      border-color: var(--border-color);
+      color: var(--text-main);
+    }
+    .table tbody tr:hover {
+      background-color: var(--bg-table-row-hover);
+    }
+
+    /* Inputs & Controls */
+    .form-control, .form-select {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      border-radius: 8px;
+    }
+    .form-control:focus, .form-select:focus {
+      background-color: var(--bg-input);
+      border-color: #3b82f6;
+      color: var(--text-main);
+      box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.2);
+    }
+    .form-control::placeholder {
+      color: var(--text-muted);
+      opacity: 0.7;
+    }
+
+    /* Buttons */
+    .btn-gradient {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      border: none;
+      transition: all 0.2s ease;
+    }
+    .btn-gradient:hover {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+    }
+    .text-muted { color: var(--text-muted) !important; }
+    .border-subtle { border-color: var(--border-color) !important; }
+
+    /* Badges */
+    .badge-active { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 500; }
+    .badge-disabled { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 500; }
+
+    code {
+      background: var(--code-bg);
+      color: var(--code-color);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    @media (max-width: 768px) {
+      .static-nav-rail {
+        width: 100%;
+        height: 56px;
+        top: auto;
+        bottom: 0;
+        flex-direction: row;
+        justify-content: space-around;
+        padding: 0 8px;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+      }
+      .rail-brand { display: none; }
+      .rail-nav { flex-direction: row; justify-content: space-around; }
+      .rail-bottom { display: none; }
+      .main-viewport { margin-left: 0; margin-bottom: 60px; padding: 16px; }
+      .rail-link .rail-tooltip, .rail-btn .rail-tooltip { display: none !important; }
+    }
+  </style>
+  <style>
+    .metric-card {
+      border-radius: 14px;
+      border: none;
+      color: #ffffff;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+    }
+    .metric-users {
+      background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    }
+    .metric-disabled {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+    .metric-cpu {
+      background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+    }
+    .metric-memory {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+    .metric-disk {
+      background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+    }
+    .metric-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <!-- Static Corner Navigation Rail (Icons Only, Name on Hover) -->
+  <nav class="static-nav-rail">
+    <a href="/" class="rail-brand" title="Zubby VPN">
+      <i class="fas fa-shield-halved"></i>
+      <span class="rail-tooltip">Zubby VPN</span>
+    </a>
+    <ul class="rail-nav">
+      <li class="rail-item">
+        <a href="/" class="rail-link active">
+          <i class="fas fa-gauge-high"></i>
+          <span class="rail-tooltip">Dashboard</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/clients" class="rail-link ">
+          <i class="fas fa-wave-square"></i>
+          <span class="rail-tooltip">Live Activity</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/client_management" class="rail-link ">
+          <i class="fas fa-sliders"></i>
+          <span class="rail-tooltip">Client Management</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/user_management" class="rail-link ">
+          <i class="fas fa-users-gear"></i>
+          <span class="rail-tooltip">User Management</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/audit_logs" class="rail-link ">
+          <i class="fas fa-file-shield"></i>
+          <span class="rail-tooltip">Audit Logs</span>
+        </a>
+      </li>
+    </ul>
+    <div class="rail-bottom">
+      <button class="rail-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+        <i class="fas fa-moon text-info" id="theme-icon"></i>
+        <span class="rail-tooltip" id="theme-tooltip">Theme: Dark</span>
+      </button>
+      <a href="/logout" class="rail-link text-danger" title="Logout">
+        <i class="fas fa-arrow-right-from-bracket"></i>
+        <span class="rail-tooltip">Logout</span>
+      </a>
+    </div>
+  </nav>
+
+<div class="main-viewport">
+  <!-- Toast Container -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+    <div id="refreshToast" class="toast align-items-center text-white border-0 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body d-flex align-items-center">
+          <i class="fas fa-check-circle me-2 fs-5" id="toast-icon"></i>
+          <span id="toast-message">Dashboard updated successfully</span>
+        </div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Dashboard Bar -->
+  <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-3" style="border-color: var(--border-color) !important;">
+    <div>
+      <h3 class="fw-bold mb-1"><i class="fas fa-shield-halved text-primary me-2"></i> Zubby VPN Dashboard</h3>
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-success rounded-pill px-2.5 py-1 text-xs"><i class="fas fa-circle me-1 fa-beat" style="font-size: 8px;"></i> OpenVPN Online</span>
+        <span class="badge bg-info text-dark rounded-pill px-2.5 py-1 text-xs"><i class="fas fa-database me-1"></i> SQLite Engine</span>
+        <small class="text-muted ms-2" id="last-updated-text">Auto-refresh active</small>
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 shadow-sm" onclick="refreshFullDashboard()" id="refresh-btn">
+        <i class="fas fa-arrows-rotate me-1" id="refresh-icon"></i> Refresh Now
+      </button>
+    </div>
+  </div>
+
+  <!-- Metric Cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-xl col-md-4 col-sm-6">
+      <div class="card metric-card metric-users p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="metric-label">Active Users</div>
+            <h3 class="fw-bold mb-0 mt-1" id="active-count">{{ active_count }}</h3>
+          </div>
+          <i class="fas fa-users fa-2x opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-sm-6">
+      <div class="card metric-card metric-disabled p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="metric-label">Disabled</div>
+            <h3 class="fw-bold mb-0 mt-1" id="disabled-count">{{ disabled_count }}</h3>
+          </div>
+          <i class="fas fa-ban fa-2x opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-sm-6">
+      <div class="card metric-card metric-cpu p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="metric-label">CPU Usage</div>
+            <h3 class="fw-bold mb-0 mt-1" id="cpu-usage">{{ "%.1f"|format(metrics.cpu if metrics.cpu is defined else 0.0) }}%</h3>
+          </div>
+          <i class="fas fa-microchip fa-2x opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-sm-6">
+      <div class="card metric-card metric-memory p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="metric-label">RAM Usage</div>
+            <h3 class="fw-bold mb-0 mt-1" id="memory-usage">{{ "%.1f"|format(metrics.memory if metrics.memory is defined else (metrics.mem if metrics.mem is defined else 0.0)) }}%</h3>
+          </div>
+          <i class="fas fa-memory fa-2x opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-sm-6">
+      <div class="card metric-card metric-disk p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="metric-label">Disk Usage</div>
+            <h3 class="fw-bold mb-0 mt-1" id="disk-usage">{{ "%.1f"|format(metrics.disk if metrics.disk is defined else 0.0) }}%</h3>
+          </div>
+          <i class="fas fa-hard-drive fa-2x opacity-50"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Connections Card -->
+  <div class="card mb-4" id="active-users-card">
+    <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
+      <h6 class="mb-0 fw-semibold"><i class="fas fa-circle text-success me-2" style="font-size: 10px;"></i> Currently Active Connections (<span id="active-users-count">{{ active_count }}</span>)</h6>
+      <span class="badge bg-success rounded-pill px-2.5 py-1 text-xs">LIVE</span>
+    </div>
+    <div class="card-body p-0" id="active-users-body">
+      {% if active_users %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead>
+            <tr>
+              <th class="ps-4">Common Name</th>
+              <th>Virtual IP</th>
+              <th>Real IP</th>
+              <th>Bytes Received</th>
+              <th>Bytes Sent</th>
+              <th>Connected Since</th>
+              <th class="text-end pe-4">Action</th>
+            </tr>
+          </thead>
+          <tbody id="active-users-tbody">
+            {% for user in active_users %}
+            <tr>
+              <td class="ps-4"><strong><i class="fas fa-user-check text-success me-2"></i>{{ user.client_name }}</strong></td>
+              <td><code>{{ user.virtual_ip }}</code></td>
+              <td><code>{{ user.real_ip }}</code></td>
+              <td>{{ user.bytes_received }}</td>
+              <td>{{ user.bytes_sent }}</td>
+              <td><small class="text-muted">{{ user.connected_since }}</small></td>
+              <td class="text-end pe-4">
+                <form action="/client_management" method="post" class="d-inline">
+                  <input type="hidden" name="action" value="kick">
+                  <input type="hidden" name="client_name" value="{{ user.client_name }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-1 px-2.5" onclick="return confirm('Disconnect active session for {{ user.client_name }}?')" title="Disconnect">
+                    <i class="fas fa-bolt me-1"></i> Kick
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center py-4 text-muted" id="no-active-users">
+        <i class="fas fa-network-wired fa-2x mb-2 opacity-50"></i>
+        <h6>No Active Client Connections</h6>
+        <p class="small mb-0">Connected clients will appear here automatically.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Real-Time Activity Logs -->
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card mb-4 h-100">
+        <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
+          <h6 class="mb-0 fw-semibold"><i class="fas fa-clock-rotate-left text-primary me-2"></i> Recent VPN Connections</h6>
+          <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ vpn_logs|length }} entries</span>
+        </div>
+        <div class="card-body p-0">
+          {% if vpn_logs %}
+          <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+            <table class="table table-hover table-sm mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th class="ps-3">Timestamp</th>
+                  <th>Client</th>
+                  <th>Remote IP</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in vpn_logs %}
+                <tr>
+                  <td class="ps-3"><small class="text-muted">{{ log.timestamp }}</small></td>
+                  <td><strong>{{ log.client }}</strong></td>
+                  <td><code>{{ log.ip }}</code></td>
+                  <td><span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-0.5" style="font-size: 0.72rem;">{{ log.status }}</span></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="text-center py-4 text-muted">
+            <p class="small mb-0">No recent connection events found.</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card mb-4 h-100">
+        <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
+          <h6 class="mb-0 fw-semibold"><i class="fas fa-key text-warning me-2"></i> MFA Authentication Audit</h6>
+          <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ mfa_logs|length }} entries</span>
+        </div>
+        <div class="card-body p-0">
+          {% if mfa_logs %}
+          <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+            <table class="table table-hover table-sm mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th class="ps-3">Timestamp</th>
+                  <th>Username</th>
+                  <th>Outcome</th>
+                  <th>Source IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in mfa_logs %}
+                <tr>
+                  <td class="ps-3"><small class="text-muted">{{ log.timestamp }}</small></td>
+                  <td><strong>{{ log.user }}</strong></td>
+                  <td>
+                    {% if log.action == 'AUTH_SUCCESS' or log.status == 'SUCCESS' %}
+                      <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-0.5" style="font-size: 0.72rem;">PASSED</span>
+                    {% else %}
+                      <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-0.5" style="font-size: 0.72rem;">FAILED</span>
+                    {% endif %}
+                  </td>
+                  <td><code>{{ log.ip }}</code></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="text-center py-4 text-muted">
+            <p class="small mb-0">No MFA auth records logged yet.</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function applyTheme(theme) {
+  if (!theme) theme = 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-bs-theme', theme);
+  localStorage.setItem('zubby_theme', theme);
+  document.cookie = "zubby_theme=" + theme + "; path=/; max-age=31536000; SameSite=Lax";
+  
+  const icon = document.getElementById('theme-icon');
+  const tip = document.getElementById('theme-tooltip');
+  if (icon) {
+    if (theme === 'light') {
+      icon.className = 'fas fa-sun text-warning';
+      if (tip) tip.textContent = 'Theme: Light';
+    } else {
+      icon.className = 'fas fa-moon text-info';
+      if (tip) tip.textContent = 'Theme: Dark';
+    }
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const target = current === 'dark' ? 'light' : 'dark';
+  applyTheme(target);
+}
+
+// Cross-tab synchronization
+window.addEventListener('storage', function(e) {
+  if (e.key === 'zubby_theme' && e.newValue) {
+    applyTheme(e.newValue);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const saved = localStorage.getItem('zubby_theme') || 'dark';
+  applyTheme(saved);
+});
+</script>
+<script>
+function showToastNotification(message, isSuccess = true) {
+  const toastEl = document.getElementById('refreshToast');
+  if (!toastEl) return;
+  const msgEl = document.getElementById('toast-message');
+  const iconEl = document.getElementById('toast-icon');
+  if (msgEl) msgEl.textContent = message;
+  const bgClass = isSuccess ? 'bg-success' : 'bg-danger';
+  toastEl.className = 'toast align-items-center text-white ' + bgClass + ' border-0 shadow';
+  if (iconEl) iconEl.className = 'fas ' + (isSuccess ? 'fa-check-circle' : 'fa-exclamation-circle') + ' me-2 fs-5';
+  const toast = new bootstrap.Toast(toastEl, { delay: 3500 });
+  toast.show();
+}
+
+function updateActiveUsersTable(users) {
+  const container = document.getElementById('active-users-body');
+  if (!container) return;
+  if (!users || users.length === 0) {
+    container.innerHTML = '<div class="text-center py-4 text-muted" id="no-active-users">' +
+      '<i class="fas fa-network-wired fa-2x mb-2 opacity-50"></i>' +
+      '<h6>No Active Client Connections</h6>' +
+      '<p class="small mb-0">Connected clients will appear here automatically.</p></div>';
+    return;
+  }
+  let html = '<div class="table-responsive"><table class="table table-hover mb-0 align-middle"><thead><tr>' +
+    '<th class="ps-4">Common Name</th><th>Virtual IP</th><th>Real IP</th><th>Bytes Received</th><th>Bytes Sent</th><th>Connected Since</th><th class="text-end pe-4">Action</th>' +
+    '</tr></thead><tbody>';
+  users.forEach(function(u) {
+    html += '<tr>' +
+      '<td class="ps-4"><strong><i class="fas fa-user-check text-success me-2"></i>' + (u.client_name || u.name || 'unknown') + '</strong></td>' +
+      '<td><code>' + (u.virtual_ip || u.vpn_ip || 'N/A') + '</code></td>' +
+      '<td><code>' + (u.real_ip || u.public_ip || 'N/A') + '</code></td>' +
+      '<td>' + (u.bytes_received || '0 B') + '</td>' +
+      '<td>' + (u.bytes_sent || '0 B') + '</td>' +
+      '<td><small class="text-muted">' + (u.connected_since || u.since || 'N/A') + '</small></td>' +
+      '<td class="text-end pe-4">' +
+      '<form action="/client_management" method="post" class="d-inline">' +
+      '<input type="hidden" name="action" value="kick">' +
+      '<input type="hidden" name="client_name" value="' + (u.client_name || u.name || '') + '">' +
+      '<button type="submit" class="btn btn-sm btn-outline-danger py-1 px-2.5" onclick="return confirm(\'Disconnect active session?\')" title="Disconnect">' +
+      '<i class="fas fa-bolt me-1"></i> Kick</button></form></td></tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function refreshFullDashboard() {
+  const btn = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  if (btn) btn.disabled = true;
+  if (icon) icon.classList.add('fa-spin');
+  
+  fetch('/api/stats')
+    .then(response => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    })
+    .then(data => {
+      const sysMetrics = data.metrics || data.system_metrics;
+      if (sysMetrics) {
+        const cpu = sysMetrics.cpu !== undefined ? sysMetrics.cpu : 0;
+        const mem = sysMetrics.memory !== undefined ? sysMetrics.memory : (sysMetrics.mem !== undefined ? sysMetrics.mem : 0);
+        const disk = sysMetrics.disk !== undefined ? sysMetrics.disk : 0;
+        const cpuEl = document.getElementById('cpu-usage');
+        const memEl = document.getElementById('memory-usage');
+        const diskEl = document.getElementById('disk-usage');
+        if (cpuEl) cpuEl.textContent = Number(cpu).toFixed(1) + '%';
+        if (memEl) memEl.textContent = Number(mem).toFixed(1) + '%';
+        if (diskEl) diskEl.textContent = Number(disk).toFixed(1) + '%';
+      }
+      const activeCount = data.active_connections ?? 0;
+      const activeEl = document.getElementById('active-count');
+      if (activeEl) activeEl.textContent = activeCount;
+      const activeBadge = document.getElementById('active-users-count');
+      if (activeBadge) activeBadge.textContent = activeCount;
+      
+      const disCount = data.disabled_count !== undefined ? data.disabled_count : (data.disabled_clients !== undefined ? (typeof data.disabled_clients === 'number' ? data.disabled_clients : Object.keys(data.disabled_clients).length) : 0);
+      const disEl = document.getElementById('disabled-count');
+      if (disEl) disEl.textContent = disCount;
+      
+      if (data.active_users) {
+        updateActiveUsersTable(data.active_users);
+      }
+      const updatedText = document.getElementById('last-updated-text');
+      if (updatedText) {
+        const now = new Date();
+        updatedText.textContent = 'Updated at ' + now.toLocaleTimeString();
+      }
+      showToastNotification('Dashboard metrics refreshed successfully', true);
+    })
+    .catch(err => {
+      showToastNotification('Failed to refresh metrics: ' + err.message, false);
+    })
+    .finally(() => {
+      if (btn) btn.disabled = false;
+      if (icon) icon.classList.remove('fa-spin');
+    });
+}
+
+// Polling interval
+setInterval(refreshFullDashboard, 15000);
+</script>
+</body>
+</html>

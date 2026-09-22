@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme or 'dark' }}" data-bs-theme="{{ current_theme or 'dark' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Zubby VPN</title>
+  <script>
+    (function() {
+      var savedTheme = localStorage.getItem('zubby_theme') || '{{ current_theme or "dark" }}';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      document.documentElement.setAttribute('data-bs-theme', savedTheme);
+    })();
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root, [data-theme="dark"], [data-bs-theme="dark"] {
+      --bg-body: #0b132b;
+      --bg-sidebar: #111827;
+      --bg-card: #1c2541;
+      --bg-card-header: #151d36;
+      --bg-input: #0f172a;
+      --bg-table-header: #0f172a;
+      --bg-table-row-hover: rgba(255, 255, 255, 0.04);
+      --border-color: #334155;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-secondary: #cbd5e1;
+      --code-bg: #0f172a;
+      --code-color: #38bdf8;
+      --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      --rail-bg: #111827;
+    }
+
+    [data-theme="light"], [data-bs-theme="light"] {
+      --bg-body: #f1f5f9;
+      --bg-sidebar: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-header: #f8fafc;
+      --bg-input: #ffffff;
+      --bg-table-header: #f8fafc;
+      --bg-table-row-hover: rgba(59, 130, 246, 0.05);
+      --border-color: #e2e8f0;
+      --border-subtle: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-secondary: #334155;
+      --code-bg: #e2e8f0;
+      --code-color: #0284c7;
+      --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      --rail-bg: #ffffff;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      min-height: 100vh;
+      margin: 0;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .login-wrapper {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .login-card {
+      max-width: 420px;
+      width: 100%;
+      border-radius: 20px;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      box-shadow: var(--card-shadow);
+      color: var(--text-main);
+    }
+    .login-brand-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    }
+
+    .form-control {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      border-radius: 8px;
+    }
+    .form-control:focus {
+      background-color: var(--bg-input);
+      border-color: #3b82f6;
+      color: var(--text-main);
+      box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.2);
+    }
+    .form-control::placeholder {
+      color: var(--text-muted);
+      opacity: 0.7;
+    }
+
+    .btn-gradient {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      border: none;
+      transition: all 0.2s ease;
+    }
+    .btn-gradient:hover {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+    }
+  </style>
+</head>
+<body>
+<div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
+  <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1" onclick="toggleTheme()" title="Toggle Theme">
+    <i class="fas fa-moon text-info me-1" id="theme-icon"></i>
+    <span id="theme-label">Dark</span>
+  </button>
+</div>
+
+<div class="login-wrapper">
+  <div class="card login-card p-4">
+    <div class="text-center mb-4">
+      <div class="login-brand-icon mb-3">
+        <i class="fas fa-shield-halved"></i>
+      </div>
+      <h4 class="fw-bold mb-1">Zubby VPN</h4>
+      <p class="text-muted small mb-0">Enter your credentials to access the console</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3">
+            <i class="fas fa-circle-exclamation me-1"></i> {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post" action="/login">
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Username</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-transparent text-muted" style="border-color: var(--border-color);"><i class="fas fa-user"></i></span>
+          <input type="text" name="username" class="form-control form-control-sm" placeholder="admin" required autofocus autocomplete="username">
+        </div>
+      </div>
+      <div class="mb-4">
+        <label class="form-label small fw-semibold">Password</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-transparent text-muted" style="border-color: var(--border-color);"><i class="fas fa-lock"></i></span>
+          <input type="password" name="password" class="form-control form-control-sm" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-sm btn-gradient w-100 py-2 fw-semibold rounded-3">
+        <i class="fas fa-right-to-bracket me-1"></i> Sign In
+      </button>
+    </form>
+
+    <div class="text-center mt-4 pt-3 border-top" style="border-color: var(--border-color) !important;">
+      <small class="text-muted" style="font-size: 0.75rem;">Zubby VPN MFA Gateway &bull; High Security Storage</small>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function applyTheme(theme) {
+  if (!theme) theme = 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-bs-theme', theme);
+  localStorage.setItem('zubby_theme', theme);
+  document.cookie = "zubby_theme=" + theme + "; path=/; max-age=31536000; SameSite=Lax";
+  
+  const icon = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (icon) {
+    if (theme === 'light') {
+      icon.className = 'fas fa-sun text-warning me-1';
+      if (label) label.textContent = 'Light';
+    } else {
+      icon.className = 'fas fa-moon text-info me-1';
+      if (label) label.textContent = 'Dark';
+    }
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const target = current === 'dark' ? 'light' : 'dark';
+  applyTheme(target);
+}
+
+// Cross-tab synchronization
+window.addEventListener('storage', function(e) {
+  if (e.key === 'zubby_theme' && e.newValue) {
+    applyTheme(e.newValue);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const saved = localStorage.getItem('zubby_theme') || 'dark';
+  applyTheme(saved);
+});
+</script>
+</body>
+</html>

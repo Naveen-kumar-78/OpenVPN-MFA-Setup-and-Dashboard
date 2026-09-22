@@ -1,0 +1,7 @@
+flask
+flask-login
+reportlab
+psutil
+pandas
+gunicorn
+werkzeug

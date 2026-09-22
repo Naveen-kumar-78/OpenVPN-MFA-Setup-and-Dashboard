@@ -24,46 +24,68 @@ STATUS_LOG="$LOG_DIR/status.log"
 MFA_DIR="/etc/openvpn/mfa-secrets"
 CLIENT_LOG="/var/log/openvpn/client_activity.log"
 
-DEFAULT_IFACE=$(ip route | grep '^default' | awk '{print $5}')
+DEFAULT_IFACE=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+[ -z "$DEFAULT_IFACE" ] && DEFAULT_IFACE=$(ip route | grep '^default' | awk '{print $5}' | head -n1)
 
 apt-get update -y
-apt-get install -y openvpn easy-rsa iptables iptables-persistent curl unzip qrencode oathtool jq
-cd /tmp
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-timedatectl set-timezone Asia/Kolkata
+apt-get install -y openvpn easy-rsa iptables iptables-persistent curl unzip qrencode oathtool jq sqlite3
 
+# Install AWS CLI non-interactively if not already present
+if ! command -v aws >/dev/null 2>&1; then
+    echo "=== Installing AWS CLI v2 ==="
+    cd /tmp
+    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip -q -o awscliv2.zip
+    ./aws/install --update || ./aws/install
+    rm -rf awscliv2.zip aws
+else
+    echo "=== AWS CLI is already installed ($(aws --version)) ==="
+fi
 
+timedatectl set-timezone Asia/Kolkata 2>/dev/null || true
 
 mkdir -p $VPN_DIR $CLIENT_DIR $HOOKS_DIR $LOG_DIR $MFA_DIR
 
-# Enable IP forwarding
+# Enable IP forwarding (compatible with all Ubuntu/Debian versions)
 echo 1 > /proc/sys/net/ipv4/ip_forward
-sed -i '/^#net.ipv4.ip_forward/c\net.ipv4.ip_forward=1' /etc/sysctl.conf
-sysctl -p
+mkdir -p /etc/sysctl.d
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-openvpn.conf
+if [ -f /etc/sysctl.conf ]; then
+    sed -i 's/^#*net.ipv4.ip_forward=.*/net.ipv4.ip_forward=1/' /etc/sysctl.conf || true
+fi
+sysctl -p /etc/sysctl.d/99-openvpn.conf >/dev/null 2>&1 || sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-iptables -t nat -A POSTROUTING -s $VPN_NET/$VPN_MASK -o $DEFAULT_IFACE -j MASQUERADE
-netfilter-persistent save
+# Setup NAT iptables rule safely
+if [ -n "$DEFAULT_IFACE" ]; then
+    iptables -t nat -C POSTROUTING -s "$VPN_NET/$VPN_MASK" -o "$DEFAULT_IFACE" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -s "$VPN_NET/$VPN_MASK" -o "$DEFAULT_IFACE" -j MASQUERADE
+    netfilter-persistent save 2>/dev/null || true
+fi
 
-# Setup PKI
+# Setup PKI (idempotent - preserves existing keys if already generated)
 if [ ! -d "$EASYRSA_DIR" ]; then
     make-cadir $EASYRSA_DIR
 fi
 cd $EASYRSA_DIR
-./easyrsa init-pki
-EASYRSA_BATCH=1 ./easyrsa build-ca nopass
-EASYRSA_BATCH=1 ./easyrsa gen-dh
-openvpn --genkey secret $VPN_DIR/tc.key   # <-- fixed deprecated syntax
-EASYRSA_BATCH=1 ./easyrsa build-server-full server nopass
-EASYRSA_BATCH=1 ./easyrsa gen-crl
+
+if [ ! -d "pki" ]; then
+    ./easyrsa init-pki
+    EASYRSA_BATCH=1 ./easyrsa build-ca nopass
+    EASYRSA_BATCH=1 ./easyrsa gen-dh
+    EASYRSA_BATCH=1 ./easyrsa build-server-full server nopass
+    EASYRSA_BATCH=1 ./easyrsa gen-crl
+fi
+
+if [ ! -f "$VPN_DIR/tc.key" ]; then
+    openvpn --genkey secret $VPN_DIR/tc.key
+fi
 
 # Copy keys
-cp pki/ca.crt $VPN_DIR/
-cp pki/issued/server.crt $VPN_DIR/
-cp pki/private/server.key $VPN_DIR/
-cp pki/dh.pem $VPN_DIR/
-cp pki/crl.pem $VPN_DIR/
+cp -f pki/ca.crt $VPN_DIR/ 2>/dev/null || true
+cp -f pki/issued/server.crt $VPN_DIR/ 2>/dev/null || true
+cp -f pki/private/server.key $VPN_DIR/ 2>/dev/null || true
+cp -f pki/dh.pem $VPN_DIR/ 2>/dev/null || true
+cp -f pki/crl.pem $VPN_DIR/ 2>/dev/null || true
 
 # Create server.conf
 cat > $VPN_DIR/server.conf <<EOF
@@ -129,6 +151,7 @@ cat > /etc/openvpn/mfa-verify.sh <<'EOF'
 # - Send SES alert after 3 fails
 # - Disable user after 10 fails within 3 minutes
 # - Kick active sessions immediately
+# - SQLite integrated with flat-file fallback
 # - DRY_RUN mode supported
 # ==========================================
 
@@ -137,6 +160,7 @@ USER="$username"
 USER=$(echo "$username" | sed 's/[\r\n\t ]//g' | tr '[:upper:]' '[:lower:]')
 PASS="$password"
 
+DB_FILE="/etc/openvpn/zubby_vpn.db"
 SECRET_FILE="/etc/openvpn/mfa-secrets/$USER.secret"
 LOG_FILE="/var/log/openvpn/mfa_attempts.log"
 SES_CONF="/etc/openvpn/ses_config"
@@ -214,9 +238,18 @@ if [ "$3" == "DRY_RUN" ]; then
 fi
 
 # -------------------- Pre-auth: Block if disabled --------------------
-if grep -q "^$USER$" "$DISABLED_LIST" 2>/dev/null; then
+IS_DISABLED=0
+if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+    IS_DISABLED=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM disabled_clients WHERE client_name='$USER';" 2>/dev/null || echo 0)
+fi
+
+if [ "$IS_DISABLED" -gt 0 ] || grep -q "^$USER$" "$DISABLED_LIST" 2>/dev/null; then
     echo "$TIME,$USER,BLOCKED_DISABLED" >> "$LOG_FILE"
     echo "$TIME,LOGIN_BLOCKED,$USER,Disabled user attempted login" >> "$CLIENT_LOG"
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details) VALUES ('$TIME', '$USER', 'BLOCKED_DISABLED', 'Disabled user attempted login');" 2>/dev/null || true
+        sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'LOGIN_BLOCKED', '$USER', 'Disabled user attempted login');" 2>/dev/null || true
+    fi
     exit 1
 fi
 
@@ -236,17 +269,31 @@ SECRET=$(cat "$SECRET_FILE")
 if oathtool --totp -b -w 2 "$SECRET" | grep -qx "$PASS"; then
     echo "$TIME,$USER,SUCCESS" >> "$LOG_FILE"
     echo "$TIME,LOGIN_ALLOWED,$USER,Login permitted" >> "$CLIENT_LOG"
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details) VALUES ('$TIME', '$USER', 'SUCCESS', 'Login permitted');" 2>/dev/null || true
+        sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'LOGIN_ALLOWED', '$USER', 'Login permitted');" 2>/dev/null || true
+    fi
     exit 0
 else
     echo "$TIME,$USER,FAIL" >> "$LOG_FILE"
     echo "$TIME,LOGIN_FAIL,$USER,Incorrect MFA" >> "$CLIENT_LOG"
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+        sqlite3 "$DB_FILE" "INSERT INTO mfa_logs (timestamp, username, status, details) VALUES ('$TIME', '$USER', 'FAIL', 'Incorrect MFA');" 2>/dev/null || true
+        sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'LOGIN_FAIL', '$USER', 'Incorrect MFA');" 2>/dev/null || true
+    fi
 
     # -------------------- Count fails within 3 minutes --------------------
-    CUTOFF_EPOCH=$(date -d '3 minutes ago' +%s)
-    RECENT_FAIL_COUNT=$(awk -F, -v user="$USER" -v cutoff="$CUTOFF_EPOCH" '
-        function toepoch(dt,    cmd,r){ gsub(/^[ \t]+|[ \t]+$/,"",dt); cmd="date -d \"" dt "\" +%s"; cmd | getline r; close(cmd); if(r ~ /^[0-9]+$/) return r; return 0 }
-        $2==user && $3=="FAIL"{t=toepoch($1); if(t>=cutoff) count++}
-        END{print (count+0)}' "$LOG_FILE")
+    RECENT_FAIL_COUNT=0
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+        RECENT_FAIL_COUNT=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM mfa_logs WHERE username='$USER' AND status='FAIL' AND timestamp >= datetime('now', '-3 minutes');" 2>/dev/null || echo 0)
+    fi
+    if [[ -z "$RECENT_FAIL_COUNT" || "$RECENT_FAIL_COUNT" -eq 0 ]]; then
+        CUTOFF_EPOCH=$(date -d '3 minutes ago' +%s 2>/dev/null || echo 0)
+        RECENT_FAIL_COUNT=$(awk -F, -v user="$USER" -v cutoff="$CUTOFF_EPOCH" '
+            function toepoch(dt,    cmd,r){ gsub(/^[ \t]+|[ \t]+$/,"",dt); cmd="date -d \"" dt "\" +%s"; cmd | getline r; close(cmd); if(r ~ /^[0-9]+$/) return r; return 0 }
+            $2==user && $3=="FAIL"{t=toepoch($1); if(t>=cutoff) count++}
+            END{print (count+0)}' "$LOG_FILE")
+    fi
 
     # -------------------- SES Alert after 3 fails today --------------------
     FAIL_COUNT_TODAY=$(grep "^$DATE_ONLY" "$LOG_FILE" 2>/dev/null | grep ",$USER,FAIL" | wc -l || echo 0)
@@ -271,10 +318,18 @@ else
             echo "$USER" >> "$DISABLED_LIST"
             echo "$TIME,DISABLED,$USER" >> "$CLIENT_LOG"
         fi
+        if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+            sqlite3 "$DB_FILE" "INSERT OR IGNORE INTO disabled_clients (client_name, reason, disabled_at, disabled_by) VALUES ('$USER', 'Exceeded 10 failed MFA attempts within 3 minutes', '$TIME', 'system');" 2>/dev/null || true
+            sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'DISABLED', '$USER', 'Auto-disabled due to excessive MFA failures');" 2>/dev/null || true
+        fi
 
         # Kick active sessions
         $KICK_CMD -f "openvpn.*$USER" >/dev/null 2>&1 || true
         echo "$TIME,KICKED,$USER" >> "$CLIENT_LOG"
+        if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+            sqlite3 "$DB_FILE" "DELETE FROM active_sessions WHERE client_name='$USER';" 2>/dev/null || true
+            sqlite3 "$DB_FILE" "INSERT INTO client_activity (timestamp, action, client_name, details) VALUES ('$TIME', 'KICKED', '$USER', 'Active sessions terminated');" 2>/dev/null || true
+        fi
 
         SUBJECT="❌ VPN Access Disabled: $USER (auto-disabled)"
         BODY_HTML="<html><body style='font-family:Arial,sans-serif;'>
@@ -295,13 +350,14 @@ EOF
 chmod 750 /etc/openvpn/mfa-verify.sh
 chown root:root /etc/openvpn/mfa-verify.sh
 
-# Hooks remain same ...
+# Hooks with dual file & SQLite logging
 cat > $HOOKS_DIR/connect.sh <<'EOF'
 #!/bin/bash
-# OpenVPN connect hook — writes to master + daily logs (8 fields)
+# OpenVPN connect hook — writes to SQLite + master + daily logs
 LOG_DIR="/var/log/openvpn/custom_logs"
 MASTER_LOG="$LOG_DIR/master_connection_audit.log"
 DAILY_LOG="$LOG_DIR/$(date +%F).log"
+DB_FILE="/etc/openvpn/zubby_vpn.db"
 
 mkdir -p "$LOG_DIR"
 
@@ -330,15 +386,22 @@ echo "$LOG_ENTRY" >> "$MASTER_LOG"
 echo "$LOG_ENTRY" >> "$DAILY_LOG"
 echo "$LOG_ENTRY" >> /var/log/openvpn/connection_audit.log 2>/dev/null || true
 
+# SQLite logging & active session tracking
+if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+    sqlite3 "$DB_FILE" "INSERT INTO connection_logs (timestamp, action, client_name, public_ip, vpn_ip, location, platform, duration) VALUES ('$TIME', 'CONNECTED via MFA', '$CLIENT', '$REAL_IP', '$VPN_IP', '$LOCATION', '$PLATFORM', '-');" 2>/dev/null || true
+    sqlite3 "$DB_FILE" "INSERT OR REPLACE INTO active_sessions (client_name, public_ip, vpn_ip, location, platform, connected_at, last_seen) VALUES ('$CLIENT', '$REAL_IP', '$VPN_IP', '$LOCATION', '$PLATFORM', '$TIME', '$TIME');" 2>/dev/null || true
+fi
+
 exit 0
 EOF
 
 cat > $HOOKS_DIR/disconnect.sh <<'EOF'
 #!/bin/bash
-# OpenVPN disconnect hook — calculates duration, writes to master + daily logs (8 fields)
+# OpenVPN disconnect hook — calculates duration, writes to SQLite + master + daily logs
 LOG_DIR="/var/log/openvpn/custom_logs"
 MASTER_LOG="$LOG_DIR/master_connection_audit.log"
 DAILY_LOG="$LOG_DIR/$(date +%F).log"
+DB_FILE="/etc/openvpn/zubby_vpn.db"
 
 mkdir -p "$LOG_DIR"
 
@@ -369,6 +432,12 @@ LOG_ENTRY="$TIME,DISCONNECT,$CLIENT,$REAL_IP,$VPN_IP,-,$PLATFORM,$DURATION_FMT"
 echo "$LOG_ENTRY" >> "$MASTER_LOG"
 echo "$LOG_ENTRY" >> "$DAILY_LOG"
 echo "$LOG_ENTRY" >> /var/log/openvpn/connection_audit.log 2>/dev/null || true
+
+# SQLite logging & active session cleanup
+if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB_FILE" ]; then
+    sqlite3 "$DB_FILE" "INSERT INTO connection_logs (timestamp, action, client_name, public_ip, vpn_ip, location, platform, duration) VALUES ('$TIME', 'DISCONNECT', '$CLIENT', '$REAL_IP', '$VPN_IP', '-', '$PLATFORM', '$DURATION_FMT');" 2>/dev/null || true
+    sqlite3 "$DB_FILE" "DELETE FROM active_sessions WHERE client_name='$CLIENT';" 2>/dev/null || true
+fi
 
 exit 0
 EOF

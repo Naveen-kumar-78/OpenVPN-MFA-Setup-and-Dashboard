@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ current_theme or 'dark' }}" data-bs-theme="{{ current_theme or 'dark' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Logs - Zubby VPN</title>
+  <script>
+    (function() {
+      var savedTheme = localStorage.getItem('zubby_theme') || '{{ current_theme or "dark" }}';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      document.documentElement.setAttribute('data-bs-theme', savedTheme);
+    })();
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root, [data-theme="dark"], [data-bs-theme="dark"] {
+      --bg-body: #0b132b;
+      --bg-sidebar: #111827;
+      --bg-card: #1c2541;
+      --bg-card-header: #151d36;
+      --bg-input: #0f172a;
+      --bg-table-header: #0f172a;
+      --bg-table-row-hover: rgba(255, 255, 255, 0.04);
+      --border-color: #334155;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-secondary: #cbd5e1;
+      --code-bg: #0f172a;
+      --code-color: #38bdf8;
+      --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      --rail-bg: #111827;
+    }
+
+    [data-theme="light"], [data-bs-theme="light"] {
+      --bg-body: #f1f5f9;
+      --bg-sidebar: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-header: #f8fafc;
+      --bg-input: #ffffff;
+      --bg-table-header: #f8fafc;
+      --bg-table-row-hover: rgba(59, 130, 246, 0.05);
+      --border-color: #e2e8f0;
+      --border-subtle: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-secondary: #334155;
+      --code-bg: #e2e8f0;
+      --code-color: #0284c7;
+      --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      --rail-bg: #ffffff;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      min-height: 100vh;
+      margin: 0;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Static Corner Rail (Icon Only, Tooltip on Hover) */
+    .static-nav-rail {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 64px;
+      background-color: var(--rail-bg);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      z-index: 1040;
+      box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .rail-brand {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      margin-bottom: 24px;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+      position: relative;
+    }
+    .rail-brand .rail-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+      z-index: 1060;
+    }
+    .rail-brand .rail-tooltip::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      transform: translateY(-50%);
+      border-width: 5px 6px 5px 0;
+      border-style: solid;
+      border-color: transparent var(--border-color) transparent transparent;
+    }
+    .rail-brand:hover .rail-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) translateX(0);
+    }
+    .rail-nav {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      align-items: center;
+    }
+    .rail-item {
+      position: relative;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .rail-link, .rail-btn {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 1.15rem;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .rail-link:hover, .rail-btn:hover {
+      color: #3b82f6;
+      background-color: var(--bg-table-row-hover);
+      transform: translateY(-1px);
+    }
+    .rail-link.active {
+      color: #ffffff !important;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Tooltip showing name on cursor hover */
+    .rail-link .rail-tooltip, .rail-btn .rail-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+      z-index: 1060;
+    }
+    .rail-link .rail-tooltip::before, .rail-btn .rail-tooltip::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      transform: translateY(-50%);
+      border-width: 5px 6px 5px 0;
+      border-style: solid;
+      border-color: transparent var(--border-color) transparent transparent;
+    }
+    .rail-link:hover .rail-tooltip, .rail-btn:hover .rail-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) translateX(0);
+    }
+
+    .rail-bottom {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      align-items: center;
+    }
+
+    /* Main Content Container Offset for Corner Menu */
+    .main-viewport {
+      margin-left: 64px;
+      min-height: 100vh;
+      padding: 24px 32px;
+      transition: margin 0.2s ease;
+    }
+
+    /* Cards & Tables */
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      box-shadow: var(--card-shadow);
+      color: var(--text-main);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .card-header {
+      background-color: var(--bg-card-header);
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .table {
+      color: var(--text-main);
+      border-color: var(--border-color);
+    }
+    .table thead th {
+      background-color: var(--bg-table-header) !important;
+      color: var(--text-muted);
+      border-color: var(--border-color);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .table tbody tr {
+      background-color: var(--bg-card);
+      border-color: var(--border-color);
+      color: var(--text-main);
+    }
+    .table tbody tr:hover {
+      background-color: var(--bg-table-row-hover);
+    }
+
+    @media (max-width: 768px) {
+      .static-nav-rail {
+        width: 100%;
+        height: 56px;
+        top: auto;
+        bottom: 0;
+        flex-direction: row;
+        justify-content: space-around;
+        padding: 0 8px;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+      }
+      .rail-brand { display: none; }
+      .rail-nav { flex-direction: row; justify-content: space-around; }
+      .rail-bottom { display: none; }
+      .main-viewport { margin-left: 0; margin-bottom: 60px; padding: 16px; }
+      .rail-link .rail-tooltip, .rail-btn .rail-tooltip { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Static Corner Navigation Rail (Icons Only, Name on Hover) -->
+  <nav class="static-nav-rail">
+    <a href="/" class="rail-brand" title="Zubby VPN">
+      <i class="fas fa-shield-halved"></i>
+      <span class="rail-tooltip">Zubby VPN</span>
+    </a>
+    <ul class="rail-nav">
+      <li class="rail-item">
+        <a href="/" class="rail-link ">
+          <i class="fas fa-gauge-high"></i>
+          <span class="rail-tooltip">Dashboard</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/clients" class="rail-link ">
+          <i class="fas fa-wave-square"></i>
+          <span class="rail-tooltip">Live Activity</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/client_management" class="rail-link ">
+          <i class="fas fa-sliders"></i>
+          <span class="rail-tooltip">Client Management</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/user_management" class="rail-link ">
+          <i class="fas fa-users-gear"></i>
+          <span class="rail-tooltip">User Management</span>
+        </a>
+      </li>
+      <li class="rail-item">
+        <a href="/audit_logs" class="rail-link active">
+          <i class="fas fa-file-shield"></i>
+          <span class="rail-tooltip">Audit Logs</span>
+        </a>
+      </li>
+    </ul>
+    <div class="rail-bottom">
+      <button class="rail-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+        <i class="fas fa-moon text-info" id="theme-icon"></i>
+        <span class="rail-tooltip" id="theme-tooltip">Theme: Dark</span>
+      </button>
+      <a href="/logout" class="rail-link text-danger" title="Logout">
+        <i class="fas fa-arrow-right-from-bracket"></i>
+        <span class="rail-tooltip">Logout</span>
+      </a>
+    </div>
+  </nav>
+
+<div class="main-viewport">
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div>
+      <h3 class="mb-1 fw-bold"><i class="fas fa-file-shield text-primary me-2"></i> Audit Logs</h3>
+      <small class="text-muted">Security and system administration event trail</small>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <a href="/export/audit/pdf" class="btn btn-sm btn-outline-primary rounded-pill px-3">
+        <i class="fas fa-file-export me-1"></i> Export PDF
+      </a>
+      <a href="/" class="btn btn-sm btn-outline-secondary rounded-pill px-3">
+        <i class="fas fa-arrow-left me-1"></i> Dashboard
+      </a>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header py-2.5 d-flex justify-content-between align-items-center">
+      <h6 class="mb-0 fw-semibold"><i class="fas fa-list text-primary me-2"></i> Administrative Events</h6>
+      <span class="badge bg-secondary rounded-pill px-2.5 py-1 text-xs">{{ audit_logs|length }} records</span>
+    </div>
+    <div class="card-body p-0">
+      {% if audit_logs %}
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0 align-middle">
+          <thead>
+            <tr>
+              <th class="ps-4">Timestamp</th>
+              <th>Action</th>
+              <th>Target / Level</th>
+              <th>Details</th>
+              <th class="pe-4">User</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in audit_logs %}
+            <tr>
+              <td class="ps-4"><small class="text-muted">{{ a['timestamp'] }}</small></td>
+              <td><span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-0.5" style="font-size: 0.72rem;">{{ a['action'] }}</span></td>
+              <td><strong>{{ a['target'] if 'target' in a.keys() else (a['level'] if 'level' in a.keys() else 'INFO') }}</strong></td>
+              <td><small>{{ a['details'] }}</small></td>
+              <td class="pe-4"><small class="text-primary">{{ a['user'] }}</small></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="p-4 text-center text-muted mb-0 small">No audit events recorded yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function applyTheme(theme) {
+  if (!theme) theme = 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-bs-theme', theme);
+  localStorage.setItem('zubby_theme', theme);
+  document.cookie = "zubby_theme=" + theme + "; path=/; max-age=31536000; SameSite=Lax";
+  
+  const icon = document.getElementById('theme-icon');
+  const tip = document.getElementById('theme-tooltip');
+  if (icon) {
+    if (theme === 'light') {
+      icon.className = 'fas fa-sun text-warning';
+      if (tip) tip.textContent = 'Theme: Light';
+    } else {
+      icon.className = 'fas fa-moon text-info';
+      if (tip) tip.textContent = 'Theme: Dark';
+    }
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const target = current === 'dark' ? 'light' : 'dark';
+  applyTheme(target);
+}
+
+// Cross-tab synchronization
+window.addEventListener('storage', function(e) {
+  if (e.key === 'zubby_theme' && e.newValue) {
+    applyTheme(e.newValue);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const saved = localStorage.getItem('zubby_theme') || 'dark';
+  applyTheme(saved);
+});
+</script>
+</body>
+</html>

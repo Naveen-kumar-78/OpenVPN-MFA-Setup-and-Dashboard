@@ -179,12 +179,13 @@ sudo bash vpn.sh
 ```
 
 What this step configures:
-1. Creates the production directory at `/root/vpn_dashboard`.
-2. Creates an isolated Python virtual environment (`venv`).
-3. Installs dependencies (`Flask`, `Gunicorn`, `ReportLab`, `Pandas`, `openpyxl`, `psutil`).
-4. Generates a secure 32-byte cryptographic session secret key.
-5. Deploys `/etc/systemd/system/vpn_dashboard.service` with 3 Gunicorn workers.
-6. Starts and enables `vpn_dashboard.service`.
+1. **Privilege Separation**: Creates an unprivileged system daemon user `vpnadmin` (with a `/usr/sbin/nologin` shell) and an `openvpn` system group.
+2. **Sudoers Whitelist**: Configures `/etc/sudoers.d/vpnadmin` with a strict `NOPASSWD` rule restricted solely to `/usr/local/bin/client.sh` (least privilege principle).
+3. **Application Root**: Deploys the web app to `/opt/vpn_dashboard` with ownership `vpnadmin:openvpn` (permissions `0750`).
+4. **Client Vault**: Sets up `/etc/openvpn/clients` with group-readable permissions for safe profile downloads (symlinked to `/root/ovpn_clients`).
+5. **Database Permissions**: Grants group `openvpn` read/write access to `/etc/openvpn/zubby_vpn.db`.
+6. **Hardened Systemd Service**: Deploys `/etc/systemd/system/vpn_dashboard.service` running as `User=vpnadmin` and `Group=openvpn` with 3 Gunicorn workers.
+7. Starts and enables `vpn_dashboard.service`.
 
 Verify that the dashboard service is active:
 ```bash

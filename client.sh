@@ -7,7 +7,7 @@
 # ==========================================
 
 EASYRSA_DIR="/etc/openvpn/server/easy-rsa"
-OUTPUT_DIR="/root/ovpn_clients"
+OUTPUT_DIR="/etc/openvpn/clients"
 MFA_DIR="/etc/openvpn/mfa-secrets"
 QR_DIR="$OUTPUT_DIR/qr"
 DISABLED_LIST="/etc/openvpn/disabled_clients.txt"
@@ -20,11 +20,25 @@ CLIENT_LOG="/var/log/openvpn/client_activity.log"
 OPENVPN_CONFIG="/etc/openvpn/server/server.conf"
 DB_FILE="/etc/openvpn/zubby_vpn.db"
 
+# Ensure openvpn group exists
+groupadd -f openvpn 2>/dev/null || true
+
 # Ensure directories and files exist with proper permissions
 mkdir -p "$OUTPUT_DIR" "$MFA_DIR" "$QR_DIR" "$SCRIPT_DIR"
+ln -sfn "$OUTPUT_DIR" /root/ovpn_clients 2>/dev/null || true
+
+chown -R root:openvpn "$OUTPUT_DIR" "$MFA_DIR" "$SCRIPT_DIR" 2>/dev/null || true
+chmod 775 "$OUTPUT_DIR" "$QR_DIR" "$SCRIPT_DIR" 2>/dev/null || true
+chmod 750 "$MFA_DIR" 2>/dev/null || true
+
 touch "$CLIENT_LOG" "$DISABLED_LIST"
-chmod 664 "$CLIENT_LOG"
-chmod 644 "$DISABLED_LIST"
+chown root:openvpn "$CLIENT_LOG" "$DISABLED_LIST" 2>/dev/null || true
+chmod 664 "$CLIENT_LOG" "$DISABLED_LIST" 2>/dev/null || true
+
+if [ -f "$DB_FILE" ]; then
+    chown root:openvpn "$DB_FILE"* 2>/dev/null || true
+    chmod 664 "$DB_FILE"* 2>/dev/null || true
+fi
 
 # Helper for SQLite logging
 db_execute() {
@@ -193,16 +207,20 @@ $(cat /etc/openvpn/server/tc.key)
 EOF
     fi
 
-    chmod 600 "$CLIENT_FILE"
+    chmod 640 "$CLIENT_FILE"
+    chown root:openvpn "$CLIENT_FILE" 2>/dev/null || true
 
     # Generate MFA secret
     SECRET=$(head /dev/urandom | tr -dc A-Z2-7 | head -c 16)
     echo "$SECRET" > "$MFA_DIR/$CLIENT.secret"
-    chmod 600 "$MFA_DIR/$CLIENT.secret"
+    chmod 640 "$MFA_DIR/$CLIENT.secret"
+    chown root:openvpn "$MFA_DIR/$CLIENT.secret" 2>/dev/null || true
 
     # Generate QR code
     if command -v qrencode >/dev/null 2>&1; then
         qrencode -o "$QR_DIR/${CLIENT}_mfa.png" "otpauth://totp/$CLIENT?secret=$SECRET&issuer=ZubbyVPN" 2>/dev/null || true
+        chmod 644 "$QR_DIR/${CLIENT}_mfa.png" 2>/dev/null || true
+        chown root:openvpn "$QR_DIR/${CLIENT}_mfa.png" 2>/dev/null || true
     fi
 
     TIME=$(date '+%Y-%m-%d %H:%M:%S')

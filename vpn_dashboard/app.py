@@ -43,12 +43,12 @@ AUDIT_LOG = "/var/log/openvpn/dashboard_audit.log"
 STATUS_LOG = "/var/log/openvpn/status.log"
 
 EASYRSA_DIR = "/etc/openvpn/server/easy-rsa"
-OUTPUT_DIR = "/root/ovpn_clients"
+OUTPUT_DIR = "/etc/openvpn/clients" if os.path.exists("/etc/openvpn/clients") else "/root/ovpn_clients"
 MFA_DIR = "/etc/openvpn/mfa-secrets"
 QR_DIR = os.path.join(OUTPUT_DIR, "qr")
 
 DASH_DIR = os.path.dirname(os.path.abspath(__file__))
-CLIENT_BIN = os.path.join(DASH_DIR, "client.sh")
+CLIENT_BIN = "/usr/local/bin/client.sh" if os.path.exists("/usr/local/bin/client.sh") else os.path.join(DASH_DIR, "client.sh")
 
 # Ensure required directories exist when possible
 for p in [os.path.dirname(DB_PATH), os.path.dirname(MASTER_VPN_LOG),
@@ -402,9 +402,12 @@ def require_client_bin():
         raise FileNotFoundError(f"client.sh not found or not executable at {CLIENT_BIN}")
 
 def call_client_action(action, client_name=None):
-    """Call client.sh script non-interactively with parameters"""
+    """Call client.sh script non-interactively with parameters (using sudo if unprivileged)"""
     require_client_bin()
-    cmd = [CLIENT_BIN, f"--{action}"]
+    if os.geteuid() != 0:
+        cmd = ["sudo", "-n", CLIENT_BIN, f"--{action}"]
+    else:
+        cmd = [CLIENT_BIN, f"--{action}"]
     if client_name:
         cmd.append(client_name)
 

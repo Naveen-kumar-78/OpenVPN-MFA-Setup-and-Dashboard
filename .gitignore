@@ -5,3 +5,20 @@ venv/
 .env
 *.log
 *.zip
+
+# Terraform full code and state ignored from git
+terraform/
+*.tf
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.pem

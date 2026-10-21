@@ -334,6 +334,12 @@ def init_db():
     except Exception as e:
         logging.error(f"init_db error: {e}")
 
+# Run DB initialization at import time so Gunicorn workers also initialize the DB
+try:
+    init_db()
+except Exception as _init_err:
+    logging.error(f"Startup init_db failed: {_init_err}")
+
 # ==========================
 # User Model & Authentication
 # ==========================
@@ -1400,7 +1406,6 @@ def internal_error(e):
     return render_template("error.html", error="Server Error", message="An unexpected server error occurred."), 500
 
 if __name__ == "__main__":
-    init_db()
     print("=== Zubby VPN Dashboard Starting ===")
     print("Database: SQLite (/etc/openvpn/zubby_vpn.db)")
     print("Default accounts: admin / operator / viewer")
